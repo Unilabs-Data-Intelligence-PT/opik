@@ -1,0 +1,17 @@
+#!/bin/bash
+
+cd src
+fastapi run server.py --port=8001 &
+status=$?
+if [ $status -ne 0 ]; then
+  echo "Failed to start fastapi: $status"
+  exit $status
+fi
+
+# Start the second process
+celery -A tasks worker --loglevel=INFO&
+status=$?
+if [ $status -ne 0 ]; then
+  echo "Failed to start celery workers: $status"
+  exit $status
+fi

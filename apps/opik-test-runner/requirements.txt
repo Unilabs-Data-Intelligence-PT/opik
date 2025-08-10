@@ -1,0 +1,5 @@
+celery
+fastapi[standard]
+git+https://git@github.com/Unilabs-Data-Intelligence-PT/llm-kit.git@main#egg=llm-kit
+mysql-connector-python
+redis
