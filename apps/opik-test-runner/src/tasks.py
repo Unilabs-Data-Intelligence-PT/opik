@@ -1,7 +1,7 @@
 from celery import Celery
 from my_sql import create_connection, load_code_by_id
-
-app = Celery('tasks', broker='redis://:opik@localhost')
+import os
+app = Celery('tasks', broker=os.getenv('REDIS_URL'))
 
 @app.task
 def run_python_script(script_id):

@@ -1,17 +1,15 @@
 #!/bin/bash
 
-cd src
-fastapi run server.py --port=8001 &
-status=$?
-if [ $status -ne 0 ]; then
-  echo "Failed to start fastapi: $status"
-  exit $status
-fi
+cd /src
 
-# Start the second process
-celery -A tasks worker --loglevel=INFO&
-status=$?
-if [ $status -ne 0 ]; then
-  echo "Failed to start celery workers: $status"
-  exit $status
-fi
+fastapi run server.py --port=8001 &
+SERVER_PID=$!
+
+celery -A tasks worker --loglevel=INFO &
+CELERY_PID=$!
+
+# Wait for any of the background processes to exit
+wait -n
+
+# Exit with the status of the process that exited
+exit $?

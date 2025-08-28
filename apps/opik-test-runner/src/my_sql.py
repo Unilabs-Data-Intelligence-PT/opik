@@ -4,10 +4,10 @@ import uuid
 import os
 
 DB_CONFIG = {
-    'host': '127.0.0.1',
-    'user': 'root',
-    'password': 'opik',
-    'database': 'opik'
+    'host': os.getenv('STATE_DB_URL'),
+    'user': os.getenv('STATE_DB_USER'),
+    'password': os.getenv('STATE_DB_PASS'),
+    'database': os.getenv('STATE_DB_DATABASE_NAME')
 }
 
 def create_connection():
