@@ -1935,6 +1935,67 @@ kubectl get pods -n $NAMESPACE
 # Clean up temporary file
 rm -f helm-values-azure-resolved.yaml
 
+# =============================================================================
+# OAUTH2 INGRESS CREATION (POST-DEPLOYMENT)
+# =============================================================================
+
+print_step "🔐 Creating separate OAuth2 ingress for authentication endpoints"
+print_info "Creating dedicated ingress for /oauth2 paths to avoid conflicts"
+
+# Check if OAuth2 ingress already exists (idempotent behavior for re-runs)
+if kubectl get ingress opik-oauth2 -n $NAMESPACE &>/dev/null; then
+    print_info "OAuth2 ingress 'opik-oauth2' already exists - updating configuration"
+    # Update the existing ingress to ensure it matches current configuration
+else
+    print_info "Creating new OAuth2 ingress for /oauth2 endpoints"
+fi
+
+# Create or update the OAuth2 ingress using the working configuration with variable substitution
+cat << EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opik-oauth2
+  namespace: $NAMESPACE
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "$SSL_ISSUER"
+    cert-manager.io/acme-challenge-type: "http01"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - $OPIK_HOST
+      secretName: opik-tls-secret
+  rules:
+    - host: $OPIK_HOST
+      http:
+        paths:
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: opik-oauth2-proxy
+                port:
+                  number: 4180
+EOF
+
+# Wait a moment for the ingress to be processed
+sleep 5
+
+# Verify the OAuth2 ingress was created/updated successfully
+if kubectl get ingress opik-oauth2 -n $NAMESPACE &>/dev/null; then
+    print_success "✅ OAuth2 ingress configured successfully"
+    kubectl get ingress opik-oauth2 -n $NAMESPACE -o wide
+else
+    print_error "❌ Failed to configure OAuth2 ingress"
+fi
+
+print_success "🔐 OAuth2 authentication endpoints are now accessible"
+print_info "OAuth2 endpoints (/oauth2/*) will not require authentication"
+print_info "Main application endpoints (/*) will require OAuth2 authentication"
+
 # Provide comprehensive deployment status
 provide_deployment_status_summary
 
@@ -2017,6 +2078,25 @@ check_certificate_errors() {
 # Function to retry certificate provisioning after failure
 retry_certificate_provisioning() {
     print_step "🔄 Retrying SSL certificate provisioning"
+    
+    # CRITICAL: Check for rate limits before attempting retry
+    print_info "Checking for Let's Encrypt rate limits before retry..."
+    check_certificate_errors
+    local error_type=$?
+    
+    if [ $error_type -eq 2 ]; then
+        print_error "🚫 Let's Encrypt rate limit detected - cannot retry now!"
+        print_warning "Rate limit prevents new certificate requests"
+        print_info "Wait for rate limit to reset before retrying"
+        return 1
+    fi
+    
+    # Double-check if we already have a valid certificate
+    if verify_certificate_validity; then
+        print_success "✅ Valid certificate detected during retry check - no action needed"
+        return 0
+    fi
+    
     print_info "Cleaning up previous failed certificate request..."
     
     # Delete failed certificate requests
@@ -2076,7 +2156,16 @@ handle_certificate_provisioning() {
     fi
     
     print_step "🔒 SSL Certificate Provisioning"
-    print_info "Attempting to provision Let's Encrypt certificate for: $DOMAIN_NAME"
+    
+    # CRITICAL: Check if we already have a valid certificate to avoid rate limits
+    print_info "Checking for existing valid certificate..."
+    if verify_certificate_validity; then
+        print_success "✅ Valid Let's Encrypt certificate already exists - skipping provisioning"
+        print_info "Certificate validation passed - no need to request new certificate"
+        return 0
+    fi
+    
+    print_info "No valid certificate found - attempting to provision Let's Encrypt certificate for: $DOMAIN_NAME"
     
     # First attempt: wait for automatic provisioning
     if wait_for_certificate_provisioning; then
@@ -2139,39 +2228,85 @@ kubectl get services -n $NAMESPACE
 # Configure HTTPS with TLS secret for NGINX Ingress
 print_step "Configuring HTTPS with TLS secret for NGINX Ingress"
 
-# Create initial TLS secret for NGINX Ingress to work with Ingress TLS configuration
-print_info "Creating initial TLS secret for NGINX Ingress HTTPS configuration..."
-
-# Create temporary SSL certificate files for TLS secret
-TEMP_CERT_DIR=$(mktemp -d)
-CERT_FILE="$TEMP_CERT_DIR/tls.crt"
-KEY_FILE="$TEMP_CERT_DIR/tls.key"
-
-# Generate a self-signed certificate for the TLS secret as fallback
-# cert-manager will replace this with a proper Let's Encrypt certificate if configured
-if [ -n "${DOMAIN_NAME:-}" ]; then
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout "$KEY_FILE" \
-        -out "$CERT_FILE" \
-        -subj "/CN=$DOMAIN_NAME" 2>/dev/null
+# Check if we already have a valid TLS secret with Let's Encrypt certificate
+print_info "Checking for existing TLS secret..."
+if kubectl get secret opik-tls-secret -n $NAMESPACE &>/dev/null; then
+    # Check if the existing certificate is valid
+    if verify_certificate_validity; then
+        print_success "✅ Valid Let's Encrypt certificate already exists in TLS secret"
+        print_info "Skipping TLS secret recreation to preserve valid certificate"
+    else
+        print_warning "⚠️ Existing TLS secret found but certificate is not valid"
+        print_info "Will recreate TLS secret with temporary self-signed certificate"
+        kubectl delete secret opik-tls-secret -n $NAMESPACE --ignore-not-found=true
+        
+        # Create initial TLS secret for NGINX Ingress to work with Ingress TLS configuration
+        print_info "Creating initial TLS secret for NGINX Ingress HTTPS configuration..."
+        
+        # Create temporary SSL certificate files for TLS secret
+        TEMP_CERT_DIR=$(mktemp -d)
+        CERT_FILE="$TEMP_CERT_DIR/tls.crt"
+        KEY_FILE="$TEMP_CERT_DIR/tls.key"
+        
+        # Generate a self-signed certificate for the TLS secret as fallback
+        # cert-manager will replace this with a proper Let's Encrypt certificate if configured
+        if [ -n "${DOMAIN_NAME:-}" ]; then
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                -keyout "$KEY_FILE" \
+                -out "$CERT_FILE" \
+                -subj "/CN=$DOMAIN_NAME" 2>/dev/null
+        else
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                -keyout "$KEY_FILE" \
+                -out "$CERT_FILE" \
+                -subj "/CN=$PUBLIC_IP_ADDRESS" 2>/dev/null
+        fi
+        
+        # Create the TLS secret
+        kubectl create secret tls opik-tls-secret \
+            --cert="$CERT_FILE" \
+            --key="$KEY_FILE" \
+            --namespace=$NAMESPACE
+        
+        # Clean up temporary files
+        rm -rf "$TEMP_CERT_DIR"
+        
+        print_success "Created initial TLS secret with self-signed certificate"
+    fi
 else
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout "$KEY_FILE" \
-        -out "$CERT_FILE" \
-        -subj "/CN=$PUBLIC_IP_ADDRESS" 2>/dev/null
+    # Create initial TLS secret for NGINX Ingress to work with Ingress TLS configuration
+    print_info "Creating initial TLS secret for NGINX Ingress HTTPS configuration..."
+    
+    # Create temporary SSL certificate files for TLS secret
+    TEMP_CERT_DIR=$(mktemp -d)
+    CERT_FILE="$TEMP_CERT_DIR/tls.crt"
+    KEY_FILE="$TEMP_CERT_DIR/tls.key"
+    
+    # Generate a self-signed certificate for the TLS secret as fallback
+    # cert-manager will replace this with a proper Let's Encrypt certificate if configured
+    if [ -n "${DOMAIN_NAME:-}" ]; then
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout "$KEY_FILE" \
+            -out "$CERT_FILE" \
+            -subj "/CN=$DOMAIN_NAME" 2>/dev/null
+    else
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout "$KEY_FILE" \
+            -out "$CERT_FILE" \
+            -subj "/CN=$PUBLIC_IP_ADDRESS" 2>/dev/null
+    fi
+    
+    # Create the TLS secret
+    kubectl create secret tls opik-tls-secret \
+        --cert="$CERT_FILE" \
+        --key="$KEY_FILE" \
+        --namespace=$NAMESPACE
+    
+    # Clean up temporary files
+    rm -rf "$TEMP_CERT_DIR"
+    
+    print_success "Created initial TLS secret with self-signed certificate"
 fi
-
-# Create or update the TLS secret
-kubectl create secret tls opik-tls-secret \
-    --cert="$CERT_FILE" \
-    --key="$KEY_FILE" \
-    --namespace=$NAMESPACE \
-    --dry-run=client -o yaml | kubectl apply -f -
-
-# Clean up temporary files
-rm -rf "$TEMP_CERT_DIR"
-
-print_success "Created initial TLS secret for NGINX Ingress HTTPS configuration"
 
 # Now handle proper certificate provisioning with cert-manager
 handle_certificate_provisioning
