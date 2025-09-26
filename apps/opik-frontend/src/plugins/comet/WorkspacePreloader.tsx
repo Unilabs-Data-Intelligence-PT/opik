@@ -5,18 +5,19 @@ import {
   useParams,
 } from "@tanstack/react-router";
 import { MoveLeft } from "lucide-react";
-import React from "react";
+import React, { useEffect } from "react";
 
 import PartialPageLayout from "@/components/layout/PartialPageLayout/PartialPageLayout";
 import Loader from "@/components/shared/Loader/Loader";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_WORKSPACE_NAME } from "@/constants/user";
-import useAppStore from "@/store/AppStore";
+import useAppStore, { useSetAppUser } from "@/store/AppStore";
 import useSegment from "./analytics/useSegment";
 import Logo from "./Logo";
 import useUser from "./useUser";
 import { buildUrl } from "./utils";
 import useAllWorkspaces from "@/plugins/comet/useAllWorkspaces";
+import { usePostHog } from "posthog-js/react";
 
 type WorkspacePreloaderProps = {
   children: React.ReactNode;
@@ -25,6 +26,7 @@ type WorkspacePreloaderProps = {
 const WorkspacePreloader: React.FunctionComponent<WorkspacePreloaderProps> = ({
   children,
 }) => {
+  const setAppUser = useSetAppUser();
   const { data: user, isLoading } = useUser();
 
   const { data: allWorkspaces } = useAllWorkspaces({
@@ -39,6 +41,29 @@ const WorkspacePreloader: React.FunctionComponent<WorkspacePreloaderProps> = ({
   const isRootPath = matchRoute({ to: "/" });
 
   useSegment(user?.userName);
+
+  const posthog = usePostHog();
+  useEffect(() => {
+    if (!user?.loggedIn) {
+      return;
+    }
+
+    setAppUser({
+      apiKey: user.apiKeys[0],
+      userName: user.userName,
+    });
+
+    posthog?.identify(user.userName, {
+      email: user.email,
+    });
+  }, [
+    posthog,
+    user?.loggedIn,
+    user?.userName,
+    user?.email,
+    user?.apiKeys,
+    setAppUser,
+  ]);
 
   if (isLoading) {
     return <Loader />;
