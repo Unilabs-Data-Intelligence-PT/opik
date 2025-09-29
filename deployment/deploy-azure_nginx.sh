@@ -1458,8 +1458,21 @@ if helm list -n $NAMESPACE | grep -q "opik"; then
         kubectl patch pv opik-clickhouse-pv --type json -p='[{"op": "remove", "path": "/spec/claimRef"}]' 2>/dev/null || true
         kubectl patch pv opik-zookeeper-pv --type json -p='[{"op": "remove", "path": "/spec/claimRef"}]' 2>/dev/null || true
         
-        # Remove any existing TLS secret (Helm will recreate it)
-        kubectl delete secret opik-tls-secret -n $NAMESPACE --ignore-not-found=true
+        # Check if TLS secret exists and is valid before deleting
+        print_info "Checking TLS certificate status..."
+        if kubectl get secret opik-tls-secret -n $NAMESPACE &>/dev/null; then
+            # Check if certificate is from Let's Encrypt
+            CERT_ISSUER=$(kubectl get secret opik-tls-secret -n $NAMESPACE -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -issuer 2>/dev/null || echo "")
+            if echo "$CERT_ISSUER" | grep -q "Let's Encrypt"; then
+                print_success "✅ Preserving valid Let's Encrypt certificate"
+                print_info "Certificate will not be deleted - avoiding rate limits"
+            else
+                print_info "Removing non-Let's Encrypt TLS secret (Helm will recreate it)"
+                kubectl delete secret opik-tls-secret -n $NAMESPACE --ignore-not-found=true
+            fi
+        else
+            print_info "No existing TLS secret found"
+        fi
         
         # Remove conflicting ingress resources to prevent admission webhook errors
         print_info "Removing existing ingress resources to prevent conflicts..."
