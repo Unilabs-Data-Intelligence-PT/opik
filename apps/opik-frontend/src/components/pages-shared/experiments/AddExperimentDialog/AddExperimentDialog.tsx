@@ -28,6 +28,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 const EVALUATION_TASK_REPLACE = "!{EVALUATION_TASK}";
 const EVALUATION_TASK_NAME_REPLACE = "!{EVALUATION_TASK_NAME}";
+const IGNORE_IMPORTS = ["os", "json", "re", "math", "sys", "time", "datetime"];
 
 export enum EVALUATOR_MODEL {
   equals = "equals",
@@ -365,20 +366,11 @@ eval_results = evaluate(
         .replace(EVALUATION_TASK_NAME_REPLACE, evalFuncName)
         .replace(EVALUATION_TASK_REPLACE, evalFunction),
     );
-  }, [section3Code, evalFunction]);
+  }, [section3Code, evalFunction, evalFuncName]);
 
   const missingFields = [
     ...new Set(models.flatMap((m) => EVALUATOR_MODEL_MAP[m].scoreParameters)),
   ].filter((param) => param && !evalFunction.includes(`"${param}"`));
-  const IGNORE_IMPORTS = [
-    "os",
-    "json",
-    "re",
-    "math",
-    "sys",
-    "time",
-    "datetime",
-  ];
 
   const imports = useMemo(
     () => [
@@ -411,7 +403,8 @@ eval_results = evaluate(
     if (selectedImport && !importsRef.current.includes(selectedImport)) {
       setSelectedImport(null);
     }
-  }, [importsRef.current.join(",")]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importsRef.current.join(","), selectedImport]);
 
   const linkClasses = cn(
     "comet-body-s flex h-9 w-full items-center gap-2 text-foreground rounded-md hover:bg-primary-foreground data-[status=active]:bg-primary-100 data-[status=active]:text-primary",

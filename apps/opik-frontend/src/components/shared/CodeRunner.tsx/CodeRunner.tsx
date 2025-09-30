@@ -88,7 +88,7 @@ const RunButton: React.FunctionComponent<RunButtonProps> = ({
     return () => {
       clearTimeout(timer);
     };
-  }, [showSuccessIcon, successIconTimeout]);
+  }, [showSuccessIcon, successIconTimeout, actionType]);
 
   const runClickHandler = useCallback(() => {
     toast({
@@ -96,7 +96,7 @@ const RunButton: React.FunctionComponent<RunButtonProps> = ({
     });
     onClick();
     setShowSuccessIcon(true);
-  }, [onClick, toast]);
+  }, [onClick, toast, message]);
 
   if (showSuccessIcon) {
     return (
@@ -144,6 +144,7 @@ const CodeRunner: React.FunctionComponent<CodeRunnerProps> = ({
     editorRef.current?.view?.dispatch({
       effects: setHighlightedLines.of(highlightedLines || []),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightedLines?.join(",")]);
   return (
     <div className="relative overflow-hidden rounded-md bg-primary-foreground">

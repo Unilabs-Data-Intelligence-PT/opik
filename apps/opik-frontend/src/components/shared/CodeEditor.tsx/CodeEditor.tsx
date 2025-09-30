@@ -51,6 +51,7 @@ const CodeEditor: React.FunctionComponent<CodeEditorProps> = ({
     editorRef.current?.view?.dispatch({
       effects: setHighlightedLines.of(highlightedLines || []),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightedLines?.join(",")]);
 
   return (
