@@ -509,7 +509,7 @@ eval_results = evaluate(
               highlightedLines={
                 selectedImport == null
                   ? []
-                  : evalFunction
+                  : (evalFunction
                       .split("\n")
                       .map((line, index) =>
                         line
@@ -518,7 +518,7 @@ eval_results = evaluate(
                           ? index + 1
                           : null,
                       )
-                      .filter((index) => index !== null)
+                      .filter((index) => index !== null) as number[])
               }
               code={evalFunction}
               useEditor={(value) => setEvalFunction(value)}
@@ -555,7 +555,7 @@ eval_results = evaluate(
                 highlightedLines={
                   selectedImport == null
                     ? []
-                    : fullCode
+                    : (fullCode
                         .split("\n")
                         .map((line, index) =>
                           line
@@ -566,7 +566,7 @@ eval_results = evaluate(
                             ? index + 1
                             : null,
                         )
-                        .filter((index) => index !== null)
+                        .filter((index) => index !== null) as number[])
                 }
                 code={fullCode}
                 useEditor={(value) => {
