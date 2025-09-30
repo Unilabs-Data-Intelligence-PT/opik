@@ -18,7 +18,7 @@ const GitHubStarListItem: React.FC<GitHubStarListItemProps> = ({
 
   const starCount = useMemo(() => {
     const count = data?.stargazers_count;
-    return isNumber(count) ? formatNumberInK(count) : "9.6k";
+    return isNumber(count) ? formatNumberInK(count) : "0";
   }, [data?.stargazers_count]);
 
   const itemElement = (
@@ -32,7 +32,7 @@ const GitHubStarListItem: React.FC<GitHubStarListItemProps> = ({
         asChild
       >
         <a
-          href="https://github.com/comet-ml/opik"
+          href="https://github.com/Unilabs-Data-Intelligence-PT/opik"
           target="_blank"
           rel="noreferrer"
         >

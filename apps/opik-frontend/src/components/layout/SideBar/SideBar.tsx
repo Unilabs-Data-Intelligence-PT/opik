@@ -275,6 +275,30 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
     annotation_queues: annotationQueuesData?.total,
   };
 
+  const bottomMenuItems: MenuItem[] = [
+    {
+      id: "documentation",
+      path: buildDocsUrl(),
+      type: MENU_ITEM_TYPE.link,
+      icon: Book,
+      label: "Documentation",
+    },
+    {
+      id: "quickstart",
+      type: MENU_ITEM_TYPE.button,
+      icon: GraduationCap,
+      label: "Quickstart guide",
+      onClick: () => setQuickstartOpened(true),
+    },
+    {
+      id: "provideFeedback",
+      type: MENU_ITEM_TYPE.button,
+      icon: MessageCircleQuestion,
+      label: "Provide feedback",
+      onClick: () => setOpenProvideFeedback(true),
+    },
+  ];
+
   const logo = LogoComponent ? (
     <LogoComponent expanded={expanded} />
   ) : (
@@ -389,11 +413,6 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
           </div>
         </div>
       </aside>
-
-      <ProvideFeedbackDialog
-        open={openProvideFeedback}
-        setOpen={setOpenProvideFeedback}
-      />
 
       <QuickstartDialog open={quickstartOpened} setOpen={setQuickstartOpened} />
     </>
