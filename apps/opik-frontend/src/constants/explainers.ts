@@ -1,6 +1,7 @@
 import { Explainer } from "@/types/shared";
 
 export enum EXPLAINER_ID {
+  visible_scores = "visible_scores",
   what_do_you_use_projects_for = "what_do_you_use_projects_for",
   what_are_feedback_scores = "what_are_feedback_scores",
   i_created_a_project_now_what = "i_created_a_project_now_what",
@@ -9,6 +10,7 @@ export enum EXPLAINER_ID {
   what_are_threads = "what_are_threads",
   whats_online_evaluation = "whats_online_evaluation",
   i_added_traces_to_a_dataset_now_what = "i_added_traces_to_a_dataset_now_what",
+  how_to_choose_annotation_queue_type = "how_to_choose_annotation_queue_type",
   why_would_i_want_to_add_traces_to_a_dataset = "why_would_i_want_to_add_traces_to_a_dataset",
   hows_the_cost_estimated = "hows_the_cost_estimated",
   hows_the_thread_cost_estimated = "hows_the_thread_cost_estimated",
@@ -47,7 +49,9 @@ export enum EXPLAINER_ID {
   what_happens_if_i_edit_an_ai_provider = "what_happens_if_i_edit_an_ai_provider",
   what_happens_if_i_edit_a_rule = "what_happens_if_i_edit_a_rule",
   what_happens_if_i_edit_a_thread_rule = "what_happens_if_i_edit_a_thread_rule",
+  what_happens_if_i_edit_a_feedback_definition = "what_happens_if_i_edit_a_feedback_definition",
   why_would_i_want_to_create_a_new_project = "why_would_i_want_to_create_a_new_project",
+  what_are_annotation_queues = "what_are_annotation_queues",
   whats_the_commit_history = "whats_the_commit_history",
   why_would_i_compare_commits = "why_would_i_compare_commits",
   whats_the_optimizer = "whats_the_optimizer",
@@ -68,9 +72,15 @@ export enum EXPLAINER_ID {
   metric_answer_relevance = "metric_answer_relevance",
   metric_context_precision = "metric_context_precision",
   metric_context_recall = "metric_context_recall",
+  trace_opik_ai = "trace_opik_ai",
 }
 
 export const EXPLAINERS_MAP: Record<EXPLAINER_ID, Explainer> = {
+  [EXPLAINER_ID.visible_scores]: {
+    id: EXPLAINER_ID.visible_scores,
+    description:
+      "Only the scores you select here will be visible to annotators during evaluation",
+  },
   [EXPLAINER_ID.what_do_you_use_projects_for]: {
     id: EXPLAINER_ID.what_do_you_use_projects_for,
     description:
@@ -169,6 +179,17 @@ export const EXPLAINERS_MAP: Record<EXPLAINER_ID, Explainer> = {
     id: EXPLAINER_ID.what_is_human_review,
     description:
       "Human review fields let you manually rate LLM outputs. Use them to gather structured feedback and monitor quality over time.",
+  },
+  [EXPLAINER_ID.what_are_annotation_queues]: {
+    id: EXPLAINER_ID.what_are_annotation_queues,
+    description:
+      "Add traces or thread to an annotation queue to collect human feedback on your LLM outputs. Only queues created in this project appear here, and traces can be added to them only",
+    docLink: "/evaluation/annotation_queues",
+  },
+  [EXPLAINER_ID.how_to_choose_annotation_queue_type]: {
+    id: EXPLAINER_ID.how_to_choose_annotation_queue_type,
+    description:
+      "Choose whether the annotation queue will contain the entire thread or individual traces",
   },
   [EXPLAINER_ID.whats_an_experiment]: {
     id: EXPLAINER_ID.whats_an_experiment,
@@ -349,6 +370,12 @@ export const EXPLAINERS_MAP: Record<EXPLAINER_ID, Explainer> = {
     description:
       "Changes will only apply to new threads. Existing threads won't be affected.",
   },
+  [EXPLAINER_ID.what_happens_if_i_edit_a_feedback_definition]: {
+    id: EXPLAINER_ID.what_happens_if_i_edit_a_feedback_definition,
+    title: "Editing a feedback definition",
+    description:
+      "Changes will only apply to new feedback scores. Existing feedback scores won't be affected.",
+  },
   [EXPLAINER_ID.why_would_i_want_to_create_a_new_project]: {
     id: EXPLAINER_ID.why_would_i_want_to_create_a_new_project,
     description:
@@ -480,5 +507,10 @@ export const EXPLAINERS_MAP: Record<EXPLAINER_ID, Explainer> = {
     description:
       "The context recall metric evaluates the accuracy and relevance of an LLM’s response based on provided context, helping to identify potential hallucinations or misalignments with the given information.",
     docLink: "/evaluation/metrics/context_recall",
+  },
+  [EXPLAINER_ID.trace_opik_ai]: {
+    id: EXPLAINER_ID.trace_opik_ai,
+    description:
+      "Our AI assistant allows you to analyze trace and spans data (which may include personal or sensitive information) using a generative AI model via OpenAI, L.L.C.",
   },
 };

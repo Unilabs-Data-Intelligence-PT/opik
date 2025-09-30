@@ -10,7 +10,7 @@ import os
 
 import dspy
 from opik.evaluation.metrics.score_result import ScoreResult
-from typing import Any, Dict
+from typing import Any
 
 # Setup cache on disk:
 import litellm
@@ -26,6 +26,7 @@ from opik_optimizer.datasets import hotpot_300
 from opik_optimizer.mipro_optimizer import (
     MIPROv2,
 )  # Or from dspy.teleprompt import MIPROv2
+from opik_optimizer.utils import search_wikipedia
 from opik_optimizer.mipro_optimizer.utils import (
     create_dspy_training_set,
     opik_metric_to_dspy,
@@ -35,7 +36,7 @@ from opik_optimizer.utils import optimization_context
 # Using disk cache for LLM calls
 disk_cache_dir = os.path.expanduser("~/.litellm_cache")
 litellm.cache = Cache(type="disk", disk_cache_dir=disk_cache_dir)
-
+search_wikipedia = opik.track(type="tool")(search_wikipedia)
 
 # First, we set the Opik callback for all dspy calls:
 project_name = "DSPy-MIPROv2"
@@ -46,20 +47,8 @@ dspy.settings.configure(
 )
 
 
-# Define our tools:
-def search_wikipedia(query: str) -> list[str]:
-    """
-    This agent is used to search wikipedia. It can retrieve additional details
-    about a topic.
-    """
-    results = dspy.ColBERTv2(url="http://20.102.90.50:2017/wiki17_abstracts")(
-        query, k=3
-    )
-    return [x["text"] for x in results]
-
-
 # This are useful methods of logging optimization data:
-def equals(dataset_item: Dict[str, Any], llm_output: str) -> ScoreResult:
+def equals(dataset_item: dict[str, Any], llm_output: str) -> ScoreResult:
     return Equals().score(reference=dataset_item["answer"], output=llm_output)
 
 

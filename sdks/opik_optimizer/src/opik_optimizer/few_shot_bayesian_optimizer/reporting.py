@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from io import StringIO
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 from rich.panel import Panel
 from rich.text import Text
@@ -46,9 +46,16 @@ def display_evaluation(
                 yield Reporter()
             finally:
                 if verbose >= 1:
-                    console.print(
-                        Text(f"\r  Baseline score was: {score:.4f}.\n", style="green")
-                    )
+                    if score is not None:
+                        console.print(
+                            Text(
+                                f"\r  Baseline score was: {score:.4f}.\n", style="green"
+                            )
+                        )
+                    else:
+                        console.print(
+                            Text("\r  Baseline score was: None\n", style="red")
+                        )
 
 
 @contextmanager
@@ -121,7 +128,7 @@ def start_optimization_trial(
 
     # Create a simple object with a method to set the score
     class Reporter:
-        def start_trial(self, messages: List[Dict[str, str]]) -> None:
+        def start_trial(self, messages: list[dict[str, str]]) -> None:
             if verbose >= 1:
                 console.print(
                     Text(

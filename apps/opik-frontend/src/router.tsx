@@ -1,4 +1,4 @@
-import React from "react";
+import React, { lazy } from "react";
 import {
   createRootRoute,
   createRoute,
@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 
 import WorkspaceGuard from "@/components/layout/WorkspaceGuard/WorkspaceGuard";
+import SMEPageLayout from "@/components/layout/SMEPageLayout/SMEPageLayout";
 import DatasetItemsPage from "@/components/pages/DatasetItemsPage/DatasetItemsPage";
 import DatasetPage from "@/components/pages/DatasetPage/DatasetPage";
 import DatasetsPage from "@/components/pages/DatasetsPage/DatasetsPage";
@@ -30,9 +31,11 @@ import RedirectDatasets from "@/components/redirect/RedirectDatasets";
 import PlaygroundPage from "@/components/pages/PlaygroundPage/PlaygroundPage";
 import useAppStore from "@/store/AppStore";
 import ConfigurationPage from "@/components/pages/ConfigurationPage/ConfigurationPage";
-import GetStartedPage from "@/components/pages/GetStartedPage/GetStartedPage";
+import NewQuickstartPage from "@/components/pages/NewQuickstartPage/NewQuickstartPage";
 import AutomationLogsPage from "@/components/pages/AutomationLogsPage/AutomationLogsPage";
 import OnlineEvaluationPage from "@/components/pages/OnlineEvaluationPage/OnlineEvaluationPage";
+import AnnotationQueuesPage from "@/components/pages/AnnotationQueuesPage/AnnotationQueuesPage";
+import AnnotationQueuePage from "@/components/pages/AnnotationQueuePage/AnnotationQueuePage";
 import OptimizationsPage from "@/components/pages/OptimizationsPage/OptimizationsPage";
 import OptimizationPage from "@/components/pages/OptimizationPage/OptimizationPage";
 import CompareOptimizationsPage from "@/components/pages/CompareOptimizationsPage/CompareOptimizationsPage";
@@ -68,6 +71,12 @@ const workspaceGuardPartialLayoutRoute = createRoute({
   id: "workspaceGuardPartialLayout",
   getParentRoute: () => rootRoute,
   component: () => <WorkspaceGuard Layout={PartialPageLayout} />,
+});
+
+const workspaceGuardSMELayoutRoute = createRoute({
+  id: "workspaceGuardSMELayout",
+  getParentRoute: () => rootRoute,
+  component: () => <WorkspaceGuard Layout={SMEPageLayout} />,
 });
 
 const workspaceGuardEmptyLayoutRoute = createRoute({
@@ -109,7 +118,7 @@ const quickstartRoute = createRoute({
 const getStartedRoute = createRoute({
   path: "/$workspaceName/get-started",
   getParentRoute: () => workspaceGuardPartialLayoutRoute,
-  component: GetStartedPage,
+  component: NewQuickstartPage,
 });
 
 // ----------- home
@@ -327,6 +336,13 @@ const redirectDatasetsRoute = createRoute({
   component: RedirectDatasets,
 });
 
+// ----------- SME flow
+const homeSMERoute = createRoute({
+  path: "/$workspaceName/sme",
+  getParentRoute: () => workspaceGuardSMELayoutRoute,
+  component: lazy(() => import("@/components/pages/SMEFlowPage/SMEFlowPage")),
+});
+
 // --------- playground
 
 const playgroundRoute = createRoute({
@@ -360,6 +376,29 @@ const onlineEvaluationRoute = createRoute({
   component: OnlineEvaluationPage,
 });
 
+const annotationQueuesRoute = createRoute({
+  path: "/annotation-queues",
+  getParentRoute: () => workspaceRoute,
+  staticData: {
+    title: "Annotation queues",
+  },
+});
+
+const annotationQueuesListRoute = createRoute({
+  path: "/",
+  getParentRoute: () => annotationQueuesRoute,
+  component: AnnotationQueuesPage,
+});
+
+const annotationQueueDetailsRoute = createRoute({
+  path: "/$annotationQueueId",
+  getParentRoute: () => annotationQueuesRoute,
+  component: AnnotationQueuePage,
+  staticData: {
+    param: "annotationQueueId",
+  },
+});
+
 // ----------- Automation logs
 
 const automationLogsRoute = createRoute({
@@ -374,6 +413,7 @@ const routeTree = rootRoute.addChildren([
     quickstartRoute,
     getStartedRoute,
   ]),
+  workspaceGuardSMELayoutRoute.addChildren([homeSMERoute]),
   workspaceGuardRoute.addChildren([
     baseRoute,
     homeRoute,
@@ -409,6 +449,10 @@ const routeTree = rootRoute.addChildren([
       playgroundRoute,
       configurationRoute,
       onlineEvaluationRoute,
+      annotationQueuesRoute.addChildren([
+        annotationQueuesListRoute,
+        annotationQueueDetailsRoute,
+      ]),
     ]),
   ]),
 ]);

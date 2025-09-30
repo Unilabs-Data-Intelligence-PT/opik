@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Any
 
 from opik_optimizer import EvolutionaryOptimizer
 
@@ -7,26 +7,14 @@ from opik.evaluation.metrics import LevenshteinRatio
 
 from opik_optimizer import ChatPrompt
 from opik_optimizer.datasets import hotpot_300
+from opik_optimizer.utils import search_wikipedia
 
-# For wikipedia tool:
-import dspy
-
-
-def search_wikipedia(query: str) -> list[str]:
-    """
-    This agent is used to search wikipedia. It can retrieve additional details
-    about a topic.
-    """
-    results = dspy.ColBERTv2(url="http://20.102.90.50:2017/wiki17_abstracts")(
-        query, k=3
-    )
-    return [item["text"] for item in results]
-
+# NOTE: functions are automatically tracked in the ChatPrompt
 
 dataset = hotpot_300()
 
 
-def levenshtein_ratio(dataset_item: Dict[str, Any], llm_output: str) -> ScoreResult:
+def levenshtein_ratio(dataset_item: dict[str, Any], llm_output: str) -> ScoreResult:
     metric = LevenshteinRatio()
     return metric.score(reference=dataset_item["answer"], output=llm_output)
 

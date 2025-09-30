@@ -337,6 +337,7 @@ const AddEditRuleDialog: React.FC<AddEditRuleDialogProps> = ({
               <ExplainerCallout
                 Icon={MessageCircleWarning}
                 className="mb-2"
+                isDismissable={false}
                 {...EXPLAINERS_MAP[
                   isThreadScope
                     ? EXPLAINER_ID.what_happens_if_i_edit_a_thread_rule
@@ -390,7 +391,7 @@ const AddEditRuleDialog: React.FC<AddEditRuleDialogProps> = ({
                           <FormControl>
                             <ProjectsSelectBox
                               value={field.value}
-                              onChange={field.onChange}
+                              onValueChange={field.onChange}
                               className={cn({
                                 "border-destructive": Boolean(
                                   validationErrors?.message,

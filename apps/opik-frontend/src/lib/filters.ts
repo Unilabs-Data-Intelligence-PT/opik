@@ -21,10 +21,12 @@ export const isFilterValid = (filter: Filter) => {
       ? filter.key !== ""
       : true;
 
-  return hasValue && hasKey;
+  const hasError = filter.error && filter.error.length > 0;
+
+  return hasValue && hasKey && !hasError;
 };
 
-export const createEmptyFilter = () => {
+export const createFilter = (filter?: Partial<Filter>) => {
   return {
     id: uniqid(),
     field: "",
@@ -32,22 +34,30 @@ export const createEmptyFilter = () => {
     operator: "",
     key: "",
     value: "",
+    ...filter,
   } as Filter;
 };
 
-export const generateSearchByIDFilters = (search?: string) => {
+export const generateSearchByFieldFilters = (
+  field: string,
+  search?: string,
+) => {
   if (!search) return undefined;
 
   return [
     {
       id: uniqid(),
-      field: "id",
+      field,
       type: COLUMN_TYPE.string,
       operator: "contains",
       key: "",
       value: search,
     },
   ] as Filter[];
+};
+
+export const generateSearchByIDFilters = (search?: string) => {
+  return generateSearchByFieldFilters("id", search);
 };
 
 export const generateVisibilityFilters = () => {
@@ -59,6 +69,36 @@ export const generateVisibilityFilters = () => {
       operator: "=",
       key: "",
       value: TRACE_VISIBILITY_MODE.default,
+    },
+  ] as Filter[];
+};
+
+export const generatePromptFilters = (promptId?: string) => {
+  if (!promptId) return undefined;
+
+  return [
+    {
+      id: uniqid(),
+      field: "prompt_ids",
+      type: COLUMN_TYPE.string,
+      operator: "contains",
+      key: "",
+      value: promptId,
+    },
+  ] as Filter[];
+};
+
+export const generateProjectFilters = (projectId?: string) => {
+  if (!projectId) return undefined;
+
+  return [
+    {
+      id: uniqid(),
+      field: "project_id",
+      type: COLUMN_TYPE.string,
+      operator: "=",
+      key: "",
+      value: projectId,
     },
   ] as Filter[];
 };
@@ -104,7 +144,7 @@ const processDurationFilter: (filter: Filter) => Filter = (filter) => ({
   value: secondsToMilliseconds(Number(filter.value)).toString(),
 });
 
-const processFiltersArray = (filters: Filter[]) => {
+export const processFiltersArray = (filters: Filter[]) => {
   return flatten(
     filters.map((filter) => {
       switch (filter.type) {

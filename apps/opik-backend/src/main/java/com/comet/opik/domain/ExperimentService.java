@@ -5,6 +5,7 @@ import com.comet.opik.api.BiInformationResponse;
 import com.comet.opik.api.Dataset;
 import com.comet.opik.api.DatasetLastExperimentCreated;
 import com.comet.opik.api.Experiment;
+import com.comet.opik.api.ExperimentGroupAggregationsResponse;
 import com.comet.opik.api.ExperimentGroupCriteria;
 import com.comet.opik.api.ExperimentGroupEnrichInfoHolder;
 import com.comet.opik.api.ExperimentGroupItem;
@@ -12,6 +13,7 @@ import com.comet.opik.api.ExperimentGroupResponse;
 import com.comet.opik.api.ExperimentSearchCriteria;
 import com.comet.opik.api.ExperimentStreamRequest;
 import com.comet.opik.api.ExperimentType;
+import com.comet.opik.api.ExperimentUpdate;
 import com.comet.opik.api.PromptVersion;
 import com.comet.opik.api.events.ExperimentCreated;
 import com.comet.opik.api.events.ExperimentsDeleted;
@@ -37,7 +39,6 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -66,8 +67,7 @@ public class ExperimentService {
     private final @NonNull EventBus eventBus;
     private final @NonNull PromptService promptService;
     private final @NonNull ExperimentSortingFactory sortingFactory;
-
-    public static final String DELETED_DATASET = "__DELETED";
+    private final @NonNull ExperimentResponseBuilder responseBuilder;
 
     @WithSpan
     public Mono<ExperimentPage> find(
@@ -243,10 +243,20 @@ public class ExperimentService {
 
                         // fetch datasets using the IDs
                         return getEnrichInfoHolder(groupItems, criteria.groups(), workspaceId)
-                                .map(enrichInfoHolder -> buildGroupResponse(groupItems, enrichInfoHolder,
+                                .map(enrichInfoHolder -> responseBuilder.buildGroupResponse(groupItems,
+                                        enrichInfoHolder,
                                         criteria.groups()));
                     });
         });
+    }
+
+    @WithSpan
+    public Mono<ExperimentGroupAggregationsResponse> findGroupsAggregations(@NonNull ExperimentGroupCriteria criteria) {
+        log.info("Finding experiment groups aggregations by criteria '{}'", criteria);
+
+        return experimentDAO.findGroupsAggregations(criteria)
+                .collectList()
+                .map(responseBuilder::buildGroupAggregationsResponse);
     }
 
     private Mono<ExperimentGroupEnrichInfoHolder> getEnrichInfoHolder(List<ExperimentGroupItem> groupItems,
@@ -272,60 +282,6 @@ public class ExperimentService {
                 .map(datasetMap -> ExperimentGroupEnrichInfoHolder.builder()
                         .datasetMap(datasetMap)
                         .build());
-    }
-
-    private ExperimentGroupResponse buildGroupResponse(List<ExperimentGroupItem> groupItems,
-            ExperimentGroupEnrichInfoHolder enrichInfoHolder, List<GroupBy> groups) {
-        var contentMap = new HashMap<String, ExperimentGroupResponse.GroupContent>();
-
-        for (ExperimentGroupItem item : groupItems) {
-            buildNestedGroups(contentMap, item.groupValues(), 0, enrichInfoHolder, groups);
-        }
-
-        return ExperimentGroupResponse.builder()
-                .content(contentMap)
-                .build();
-    }
-
-    private void buildNestedGroups(Map<String, ExperimentGroupResponse.GroupContent> parentLevel,
-            List<String> groupValues, int depth, ExperimentGroupEnrichInfoHolder enrichInfoHolder,
-            List<GroupBy> groups) {
-        if (depth >= groupValues.size()) {
-            return;
-        }
-
-        String groupingValue = groupValues.get(depth);
-        if (groupingValue == null) {
-            return;
-        }
-
-        ExperimentGroupResponse.GroupContent currentLevel = parentLevel.computeIfAbsent(
-                groupingValue,
-                // We have to enrich with the dataset name if it's for dataset
-                key -> buildGroupNode(
-                        key,
-                        enrichInfoHolder,
-                        groups.get(depth)));
-
-        // Recursively build nested groups
-        buildNestedGroups(currentLevel.groups(), groupValues, depth + 1, enrichInfoHolder, groups);
-    }
-
-    private ExperimentGroupResponse.GroupContent buildGroupNode(String groupingValue,
-            ExperimentGroupEnrichInfoHolder enrichInfoHolder, GroupBy group) {
-        return switch (group.field()) {
-            case DATASET_ID ->
-                ExperimentGroupResponse.GroupContent.builder()
-                        .label(Optional.ofNullable(enrichInfoHolder.datasetMap().get(UUID.fromString(groupingValue)))
-                                .map(Dataset::name)
-                                .orElse(DELETED_DATASET))
-                        .groups(new HashMap<>())
-                        .build();
-
-            default -> ExperimentGroupResponse.GroupContent.builder()
-                    .groups(new HashMap<>())
-                    .build();
-        };
     }
 
     @WithSpan
@@ -488,6 +444,19 @@ public class ExperimentService {
         }
         log.error("Unexpected exception creating experiment with id '{}'", id);
         return Mono.error(throwable);
+    }
+
+    @WithSpan
+    public Mono<Void> update(@NonNull UUID id, @NonNull ExperimentUpdate experimentUpdate) {
+        log.info("Updating experiment with id '{}'", id);
+        return experimentDAO.getById(id)
+                .switchIfEmpty(Mono.error(newNotFoundException("Experiment not found: '%s'".formatted(id))))
+                .then(experimentDAO.update(id, experimentUpdate))
+                .doOnSuccess(unused -> log.info("Successfully updated experiment with id '{}'", id))
+                .onErrorResume(throwable -> {
+                    log.error("Failed to update experiment with id '{}'", id, throwable);
+                    return Mono.error(throwable);
+                });
     }
 
     private NotFoundException newNotFoundException(String message) {

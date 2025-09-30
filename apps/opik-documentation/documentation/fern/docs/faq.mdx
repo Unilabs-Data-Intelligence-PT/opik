@@ -21,6 +21,37 @@ Opik currently provides official SDKs for:
 
 These SDKs are actively maintained and regularly updated. For other languages, you can use our REST API directly - see our [API documentation](/docs/opik/reference/rest-api/overview) for details.
 
+### What format should I use for start_time?
+
+The `start_time` field supports **ISO 8601 datetime format** with UTC timezone. For best compatibility across all Opik SDKs and the backend, use:
+
+```
+2024-01-01T10:20:30.123456Z
+```
+
+**Format specification:**
+- Pattern: `YYYY-MM-DDTHH:MM:SS.ffffffZ`
+- Timezone: UTC (always with `Z` suffix)
+- Precision: Microseconds (6 decimal places)
+
+**Examples:**
+- `2024-01-01T10:20:30Z` (seconds only)
+- `2024-01-01T10:20:30.123Z` (milliseconds)
+- `2024-01-01T10:20:30.123456Z` (microseconds - recommended)
+
+This format is supported by:
+- Python SDK
+- TypeScript SDK  
+- Java Backend
+- Frontend UI
+- ClickHouse Database
+
+**Why UTC with Z suffix?**
+- Avoids timezone conversion issues
+- Universally supported across programming languages
+- Explicitly indicates UTC timezone
+- RFC 3339 compliant
+
 ### Can I use Opik to monitor my LLM application in production?
 
 Yes, Opik has been designed from the ground up to be used to monitor production applications. If you are self-hosting the
@@ -57,6 +88,22 @@ from the top right of the page
   configurations.
 </Tip>
 
+### How do I find my workspace and project name?
+
+Your **workspace name** and **project name** are displayed in the Opik UI:
+
+**Workspace Name:**
+- Look at the top of the page in the breadcrumb navigation
+- It appears as the first item after "opik" in the breadcrumb path
+- Example: `opik > your-workspace-name > Projects > your-project-name`
+
+**Project Name:**
+- When you're inside a project, it appears as the main header in the content area
+- It's also the last item in the breadcrumb navigation
+- Example: `opik > your-workspace-name > Projects > your-project-name`
+
+You can also see your workspace information in the left sidebar under "Projects" which shows the count of projects in your workspace.
+
 ### Are there are rate limits on Opik Cloud?
 
 Yes, in order to ensure all users have a good experience we have implemented rate limits. When you encounter a rate limit,
@@ -86,12 +133,28 @@ For questions about rate limits, reach out to us on [Slack](https://chat.comet.c
 
 ### What integrations does Opik support?
 
-Opik supports a wide range of popular LLM frameworks and providers. You can find detailed integration guides in our [cookbook section](/cookbook/overview#integration-examples) for:
+Opik supports a comprehensive range of popular LLM frameworks, providers, and tools. You can find detailed integration guides in our [Integrations Overview](/integrations/overview).
 
-- LLM Providers: OpenAI, Anthropic, AWS Bedrock, Google Gemini, Groq, IBM watsonx, Ollama
-- Frameworks: LangChain, LlamaIndex, Haystack, DSPy, CrewAI, LangGraph
-- Tools: LiteLLM, Guardrails, Ragas, aisuite
-- And more!
+**Model Providers:**
+Anthropic, AWS Bedrock, BytePlus, Cloudflare Workers AI, Cohere, DeepSeek, Fireworks AI, Google Gemini, Groq, Mistral AI, Novita AI, Ollama, OpenAI (Python & JS/TS), Predibase, Together AI, IBM WatsonX, xAI Grok
+
+**Frameworks:**
+AG2, Agno, Autogen, CrewAI, DSPy, Haystack, Instructor, LangChain (Python & JS/TS), LangGraph, LlamaIndex, Mastra, Pydantic AI, Semantic Kernel, Smolagents, Spring AI, Strands Agents, VoltAgent, OpenAI Agents, Google Agent Development Kit, LiveKit Agents, BeeAI
+
+**Evaluation & Testing:**
+Ragas
+
+**Gateways & Proxies:**
+LiteLLM, OpenRouter, AISuite
+
+**No-Code Tools:**
+Dify, Flowise
+
+**OpenTelemetry:**
+OpenTelemetry (Python & Ruby SDKs)
+
+**Other Tools:**
+Guardrails AI
 
 ### What if Opik doesn't support my preferred framework or tool?
 

@@ -1,3 +1,4 @@
+export { type TraceThreadBatchIdentifier } from "./TraceThreadBatchIdentifier";
 export { type GetTracesByProjectRequest } from "./GetTracesByProjectRequest";
 export { type TraceBatchWrite } from "./TraceBatchWrite";
 export { type TraceUpdate } from "./TraceUpdate";
@@ -10,3 +11,4 @@ export { type GetTraceThreadsRequest } from "./GetTraceThreadsRequest";
 export { type FeedbackScoreBatchThread } from "./FeedbackScoreBatchThread";
 export { type TraceThreadSearchStreamRequest } from "./TraceThreadSearchStreamRequest";
 export { type TraceSearchStreamRequestPublic } from "./TraceSearchStreamRequestPublic";
+export { type TraceThreadUpdate } from "./TraceThreadUpdate";

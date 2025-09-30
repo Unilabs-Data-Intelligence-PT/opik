@@ -43,6 +43,7 @@ jobs:
     run_suite:
         name: "Run suite: ${{ github.event.inputs.suite || 'regression' }}"
         runs-on: ubuntu-latest
+        timeout-minutes: 60
 
         steps:
             - name: Checkout repo
@@ -69,8 +70,8 @@ jobs:
               env:
                 OPIK_USAGE_REPORT_ENABLED: false
               run: |
-                cd ${{ github.workspace }}/deployment/docker-compose
-                docker compose up -d --build
+                cd ${{ github.workspace }}
+                ./opik.sh --build
                 
             - name: Check Docker pods are up (Local)
               run: |
@@ -109,8 +110,7 @@ jobs:
             - name: Stop Opik server (Local)
               if: always()
               run: |
-                cd ${{ github.workspace }}/deployment/docker-compose
-                docker compose down
-                cd -
+                cd ${{ github.workspace }}
+                ./opik.sh --stop
 
         continue-on-error: ${{ github.event_name == 'pull_request' }}

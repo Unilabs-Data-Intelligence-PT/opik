@@ -16,6 +16,7 @@ import { useDynamicColumnsCache } from "@/hooks/useDynamicColumnsCache";
 import useQueryParamAndLocalStorageState from "@/hooks/useQueryParamAndLocalStorageState";
 import ColumnsButton from "@/components/shared/ColumnsButton/ColumnsButton";
 import DateTag from "@/components/shared/DateTag/DateTag";
+import SearchInput from "@/components/shared/SearchInput/SearchInput";
 import useDatasetItemsList from "@/api/datasets/useDatasetItemsList";
 import useDatasetById from "@/api/datasets/useDatasetById";
 import { DatasetItem } from "@/types/datasets";
@@ -75,6 +76,10 @@ const DatasetItemsPage = () => {
     updateType: "replaceIn",
   });
 
+  const [search = "", setSearch] = useQueryParam("search", StringParam, {
+    updateType: "replaceIn",
+  });
+
   const [size, setSize] = useQueryParamAndLocalStorageState<
     number | null | undefined
   >({
@@ -109,6 +114,7 @@ const DatasetItemsPage = () => {
       datasetId,
       page: page as number,
       size: size as number,
+      search: search!,
       truncate: true,
     },
     {
@@ -138,6 +144,16 @@ const DatasetItemsPage = () => {
 
   const rows: Array<DatasetItem> = useMemo(() => data?.content ?? [], [data]);
   const noDataText = "There are no dataset items yet";
+
+  const handleSearchChange = useCallback(
+    (newSearch: string | null) => {
+      setSearch(newSearch);
+      if (page !== 1) {
+        setPage(1);
+      }
+    },
+    [setSearch, setPage, page],
+  );
 
   const selectedRows: DatasetItem[] = useMemo(() => {
     return rows.filter((row) => rowSelection[row.id]);
@@ -229,6 +245,17 @@ const DatasetItemsPage = () => {
     ];
   }, [columnsData, columnsOrder, handleRowClick, selectedColumns]);
 
+  const columnsToExport = useMemo(() => {
+    return columns
+      .map((c) => get(c, "accessorKey", ""))
+      .filter((c) =>
+        c === COLUMN_SELECT_ID
+          ? false
+          : selectedColumns.includes(c) ||
+            (DEFAULT_COLUMN_PINNING.left || []).includes(c),
+      );
+  }, [columns, selectedColumns]);
+
   const handleNewDatasetItemClick = useCallback(() => {
     setOpenDialog(true);
     resetDialogKeyRef.current = resetDialogKeyRef.current + 1;
@@ -283,6 +310,11 @@ const DatasetItemsPage = () => {
             {dataset?.name}
           </h1>
         </div>
+        {dataset?.description && (
+          <div className="-mt-3 mb-4 text-muted-slate">
+            {dataset.description}
+          </div>
+        )}
         {dataset?.created_at && (
           <div className="mb-2 flex gap-4 overflow-x-auto">
             <DateTag date={dataset?.created_at} />
@@ -295,9 +327,23 @@ const DatasetItemsPage = () => {
         />
       </div>
       <div className="mb-4 flex items-center justify-between gap-8">
-        <div className="flex items-center gap-2"></div>
         <div className="flex items-center gap-2">
-          <DatasetItemsActionsPanel datasetItems={selectedRows} />
+          <SearchInput
+            searchText={search!}
+            setSearchText={handleSearchChange}
+            placeholder="Search"
+            className="w-[320px]"
+            dimension="sm"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <DatasetItemsActionsPanel
+            datasetItems={selectedRows}
+            datasetId={datasetId}
+            datasetName={dataset?.name ?? ""}
+            columnsToExport={columnsToExport}
+            dynamicColumns={dynamicColumnsIds}
+          />
           <Separator orientation="vertical" className="mx-2 h-4" />
           <DataTableRowHeightSelector
             type={height as ROW_HEIGHT}

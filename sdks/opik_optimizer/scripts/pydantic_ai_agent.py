@@ -1,32 +1,16 @@
-from typing import Optional, List, Dict
-
 from opik_optimizer import (
     OptimizableAgent,
     ChatPrompt,
 )
+from opik_optimizer.utils import search_wikipedia
 from opik import track
 
 from pydantic_ai import Agent
-from pydantic_ai.tools import RunContext
 from pydantic_ai.messages import (
     ModelRequest,
     UserPromptPart,
     SystemPromptPart,
 )
-
-# Tools:
-import dspy
-
-
-def search_wikipedia(ctx: RunContext, query: str) -> list[str]:
-    """
-    This agent is used to search wikipedia. It can retrieve additional details
-    about a topic.
-    """
-    results = dspy.ColBERTv2(url="http://20.102.90.50:2017/wiki17_abstracts")(
-        query, k=3
-    )
-    return [item["text"] for item in results]
 
 
 class PydanticAIAgent(OptimizableAgent):
@@ -44,7 +28,7 @@ class PydanticAIAgent(OptimizableAgent):
         )
         self.agent.tool(track(type="tool")(search_wikipedia))
 
-    def invoke(self, messages: List[Dict[str, str]], seed: Optional[int] = None) -> str:
+    def invoke(self, messages: list[dict[str, str]], seed: int | None = None) -> str:
         message_history = []
         for message in messages:
             if message["role"] == "system":

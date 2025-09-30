@@ -74,13 +74,12 @@ const AddEditDatasetDialog: React.FunctionComponent<
       if (hasValidCsvData && newDataset.id) {
         // Prepare items with manual source and data fields
         const headers = Object.keys(csvData[0]);
-        const [inputKey, outputKey] = headers;
         const items = csvData.map((row) => ({
           source: DATASET_ITEM_SOURCE.manual,
-          data: {
-            [inputKey]: row[inputKey],
-            [outputKey]: row[outputKey],
-          },
+          data: headers.reduce<Record<string, unknown>>((acc, header) => {
+            acc[header] = row[header];
+            return acc;
+          }, {}),
         }));
 
         createItemsMutate(
@@ -247,8 +246,9 @@ const AddEditDatasetDialog: React.FunctionComponent<
             <div className="flex flex-col gap-2 pb-4">
               <Label>Upload a CSV (optional)</Label>
               <Description className="tracking-normal">
-                Your CSV file should contain only two columns (input and output)
-                and up to 1,000 rows. For larger datasets, use the SDK instead.
+                Your CSV file can contain up to 1,000 rows, for larger datasets
+                use the SDK instead. You can also skip this step and add dataset
+                items manually later.
                 <Button variant="link" size="sm" className="h-5 px-1" asChild>
                   <a
                     href={buildDocsUrl("/evaluation/manage_datasets")}
@@ -259,9 +259,6 @@ const AddEditDatasetDialog: React.FunctionComponent<
                     <SquareArrowOutUpRight className="ml-0.5 size-3 shrink-0" />
                   </a>
                 </Button>
-                <br />
-                You can also skip this step and add dataset items manually
-                later.
               </Description>
               <UploadField
                 disabled={isEdit}

@@ -3,6 +3,8 @@ package com.comet.opik.api.resources.v1.priv;
 import com.codahale.metrics.annotation.Timed;
 import com.comet.opik.api.BatchDelete;
 import com.comet.opik.api.Dataset;
+import com.comet.opik.api.DatasetExpansion;
+import com.comet.opik.api.DatasetExpansionResponse;
 import com.comet.opik.api.DatasetIdentifier;
 import com.comet.opik.api.DatasetItem;
 import com.comet.opik.api.DatasetItemBatch;
@@ -13,12 +15,14 @@ import com.comet.opik.api.ExperimentItem;
 import com.comet.opik.api.PageColumns;
 import com.comet.opik.api.Visibility;
 import com.comet.opik.api.filter.DatasetFilter;
+import com.comet.opik.api.filter.DatasetItemFilter;
 import com.comet.opik.api.filter.ExperimentsComparisonFilter;
 import com.comet.opik.api.filter.FiltersFactory;
 import com.comet.opik.api.resources.v1.priv.validate.ParamsValidator;
 import com.comet.opik.api.sorting.SortingFactoryDatasets;
 import com.comet.opik.api.sorting.SortingField;
 import com.comet.opik.domain.DatasetCriteria;
+import com.comet.opik.domain.DatasetExpansionService;
 import com.comet.opik.domain.DatasetItemSearchCriteria;
 import com.comet.opik.domain.DatasetItemService;
 import com.comet.opik.domain.DatasetService;
@@ -27,7 +31,7 @@ import com.comet.opik.domain.IdGenerator;
 import com.comet.opik.domain.Streamer;
 import com.comet.opik.infrastructure.auth.RequestContext;
 import com.comet.opik.infrastructure.ratelimit.RateLimited;
-import com.comet.opik.utils.AsyncUtils;
+import com.comet.opik.utils.RetryUtils;
 import com.fasterxml.jackson.annotation.JsonView;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.dropwizard.jersey.errors.ErrorMessage;
@@ -67,6 +71,7 @@ import org.glassfish.jersey.server.ChunkedOutput;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -84,6 +89,7 @@ public class DatasetsResource {
 
     private final @NonNull DatasetService service;
     private final @NonNull DatasetItemService itemService;
+    private final @NonNull DatasetExpansionService expansionService;
     private final @NonNull Provider<RequestContext> requestContext;
     private final @NonNull FiltersFactory filtersFactory;
     private final @NonNull IdGenerator idGenerator;
@@ -250,6 +256,23 @@ public class DatasetsResource {
         return Response.ok(dataset).build();
     }
 
+    @POST
+    @Path("/{id}/expansions")
+    @Operation(operationId = "expandDataset", summary = "Expand dataset with synthetic samples", description = "Generate synthetic dataset samples using LLM based on existing data patterns", responses = {
+            @ApiResponse(responseCode = "200", description = "Generated synthetic samples", content = @Content(schema = @Schema(implementation = DatasetExpansionResponse.class)))
+    })
+    @RateLimited
+    public Response expandDataset(
+            @PathParam("id") UUID datasetId,
+            @RequestBody(content = @Content(schema = @Schema(implementation = DatasetExpansion.class))) @JsonView(DatasetExpansion.View.Write.class) @NotNull @Valid DatasetExpansion request) {
+        var workspaceId = requestContext.get().getWorkspaceId();
+        log.info("Expanding dataset with id '{}' on workspaceId '{}'", datasetId, workspaceId);
+        var response = expansionService.expandDataset(datasetId, request);
+        log.info("Expanded dataset with id '{}' on workspaceId '{}', total samples '{}'",
+                datasetId, workspaceId, response.totalGenerated());
+        return Response.ok(response).build();
+    }
+
     // Dataset Item Resources
 
     @GET
@@ -282,15 +305,27 @@ public class DatasetsResource {
             @PathParam("id") UUID id,
             @QueryParam("page") @Min(1) @DefaultValue("1") int page,
             @QueryParam("size") @Min(1) @DefaultValue("10") int size,
+            @QueryParam("filters") String filters,
             @QueryParam("truncate") @Schema(description = "Truncate image included in either input, output or metadata") boolean truncate) {
 
+        var queryFilters = filtersFactory.newFilters(filters, DatasetItemFilter.LIST_TYPE_REFERENCE);
+
+        var datasetItemSearchCriteria = DatasetItemSearchCriteria.builder()
+                .datasetId(id)
+                .experimentIds(Set.of()) // Empty set for regular dataset items
+                .filters(queryFilters)
+                .entityType(EntityType.TRACE)
+                .truncate(truncate)
+                .build();
+
         String workspaceId = requestContext.get().getWorkspaceId();
-        log.info("Finding dataset items by id '{}', page '{}', size '{} on workspace_id '{}''", id, page, size,
-                workspaceId);
-        DatasetItem.DatasetItemPage datasetItemPage = itemService.getItems(id, page, size, truncate)
+        log.info("Finding dataset items by id '{}', page '{}', size '{}', filters '{}' on workspace_id '{}'", id, page,
+                size, filters, workspaceId);
+
+        DatasetItem.DatasetItemPage datasetItemPage = itemService.getItems(page, size, datasetItemSearchCriteria)
                 .contextWrite(ctx -> setRequestContext(ctx, requestContext))
                 .block();
-        log.info("Found dataset items by id '{}', count '{}', page '{}', size '{} on workspace_id '{}''", id,
+        log.info("Found dataset items by id '{}', count '{}', page '{}', size '{}' on workspace_id '{}'", id,
                 datasetItemPage.content().size(), page, size, workspaceId);
 
         return Response.ok(datasetItemPage).build();
@@ -344,7 +379,7 @@ public class DatasetsResource {
                 batch.datasetId(), batch.datasetId(), batch.items().size(), workspaceId);
         itemService.save(new DatasetItemBatch(batch.datasetName(), batch.datasetId(), items))
                 .contextWrite(ctx -> setRequestContext(ctx, requestContext))
-                .retryWhen(AsyncUtils.handleConnectionError())
+                .retryWhen(RetryUtils.handleConnectionError())
                 .block();
         log.info("Created dataset items batch by datasetId '{}', datasetName '{}', size '{}' on workspaceId '{}'",
                 batch.datasetId(), batch.datasetId(), batch.items().size(), workspaceId);
@@ -440,5 +475,4 @@ public class DatasetsResource {
 
         return Response.ok(columns).build();
     }
-
 }

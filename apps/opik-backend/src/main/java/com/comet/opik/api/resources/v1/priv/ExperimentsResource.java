@@ -3,6 +3,7 @@ package com.comet.opik.api.resources.v1.priv;
 import com.codahale.metrics.annotation.Timed;
 import com.comet.opik.api.DeleteIdsHolder;
 import com.comet.opik.api.Experiment;
+import com.comet.opik.api.ExperimentGroupAggregationsResponse;
 import com.comet.opik.api.ExperimentGroupCriteria;
 import com.comet.opik.api.ExperimentGroupResponse;
 import com.comet.opik.api.ExperimentItem;
@@ -14,6 +15,7 @@ import com.comet.opik.api.ExperimentItemsDelete;
 import com.comet.opik.api.ExperimentSearchCriteria;
 import com.comet.opik.api.ExperimentStreamRequest;
 import com.comet.opik.api.ExperimentType;
+import com.comet.opik.api.ExperimentUpdate;
 import com.comet.opik.api.FeedbackDefinition;
 import com.comet.opik.api.FeedbackScoreNames;
 import com.comet.opik.api.filter.ExperimentFilter;
@@ -37,7 +39,7 @@ import com.comet.opik.domain.workspaces.WorkspaceMetadataService;
 import com.comet.opik.infrastructure.auth.RequestContext;
 import com.comet.opik.infrastructure.ratelimit.RateLimited;
 import com.comet.opik.infrastructure.usagelimit.UsageLimited;
-import com.comet.opik.utils.AsyncUtils;
+import com.comet.opik.utils.RetryUtils;
 import com.fasterxml.jackson.annotation.JsonView;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.dropwizard.jersey.errors.ErrorMessage;
@@ -57,6 +59,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.PATCH;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
@@ -203,6 +206,45 @@ public class ExperimentsResource {
     }
 
     @GET
+    @Path("/groups/aggregations")
+    @Operation(operationId = "findExperimentGroupsAggregations", summary = "Find experiment groups with aggregations", description = "Find experiments grouped by specified fields with aggregation metrics", responses = {
+            @ApiResponse(responseCode = "200", description = "Experiment groups with aggregations", content = @Content(schema = @Schema(implementation = ExperimentGroupAggregationsResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Bad Request", content = @Content(schema = @Schema(implementation = ErrorMessage.class)))
+    })
+    public Response findGroupsAggregations(
+            @QueryParam("groups") String groupsQueryParam,
+            @QueryParam("types") String typesQueryParam,
+            @QueryParam("name") String name,
+            @QueryParam("filters") String filters) {
+
+        // Parse and validate groups parameter using GroupingFactory
+        List<GroupBy> groups = groupingFactory.newGrouping(groupsQueryParam);
+
+        // Parse optional parameters
+        var types = Optional.ofNullable(typesQueryParam)
+                .map(queryParam -> ParamsValidator.get(queryParam, ExperimentType.class, "types"))
+                .orElse(null);
+
+        var experimentFilters = filtersFactory.newFilters(filters, ExperimentFilter.LIST_TYPE_REFERENCE);
+
+        var experimentGroupCriteria = ExperimentGroupCriteria.builder()
+                .groups(groups)
+                .name(name)
+                .types(types)
+                .filters(experimentFilters)
+                .build();
+
+        log.info("Finding experiment groups aggregations by criteria '{}'", experimentGroupCriteria);
+        var groupAggregationsResponse = experimentService.findGroupsAggregations(experimentGroupCriteria)
+                .contextWrite(ctx -> setRequestContext(ctx, requestContext))
+                .block();
+        log.info("Found experiment groups aggregations, total top-level groups: {}",
+                groupAggregationsResponse.content().size());
+
+        return Response.ok().entity(groupAggregationsResponse).build();
+    }
+
+    @GET
     @Path("/{id}")
     @Operation(operationId = "getExperimentById", summary = "Get experiment by id", description = "Get experiment by id", responses = {
             @ApiResponse(responseCode = "200", description = "Experiment resource", content = @Content(schema = @Schema(implementation = Experiment.class))),
@@ -236,6 +278,25 @@ public class ExperimentsResource {
         log.info("Created experiment with id '{}', name '{}', datasetName '{}', workspaceId '{}'",
                 id, experiment.name(), experiment.datasetName(), workspaceId);
         return Response.created(uri).build();
+    }
+
+    @PATCH
+    @Path("/{id}")
+    @Operation(operationId = "updateExperiment", summary = "Update experiment by id", description = "Update experiment by id", responses = {
+            @ApiResponse(responseCode = "204", description = "No Content"),
+            @ApiResponse(responseCode = "404", description = "Not found", content = @Content(schema = @Schema(implementation = ErrorMessage.class))),
+            @ApiResponse(responseCode = "400", description = "Bad Request", content = @Content(schema = @Schema(implementation = ErrorMessage.class)))
+    })
+    @RateLimited
+    public Response update(@PathParam("id") UUID id,
+            @RequestBody(content = @Content(schema = @Schema(implementation = ExperimentUpdate.class))) @NotNull @Valid ExperimentUpdate experimentUpdate) {
+        var workspaceId = requestContext.get().getWorkspaceId();
+        log.info("Updating experiment with id '{}', workspaceId '{}'", id, workspaceId);
+        experimentService.update(id, experimentUpdate)
+                .contextWrite(ctx -> setRequestContext(ctx, requestContext))
+                .block();
+        log.info("Updated experiment with id '{}', workspaceId '{}'", id, workspaceId);
+        return Response.noContent().build();
     }
 
     @POST
@@ -349,7 +410,7 @@ public class ExperimentsResource {
         log.info("Creating experiment items, count '{}'", newRequest.size());
         experimentItemService.create(newRequest)
                 .contextWrite(ctx -> setRequestContext(ctx, requestContext))
-                .retryWhen(AsyncUtils.handleConnectionError())
+                .retryWhen(RetryUtils.handleConnectionError())
                 .block();
         log.info("Created experiment items, count '{}'", newRequest.size());
         return Response.noContent().build();
@@ -378,6 +439,7 @@ public class ExperimentsResource {
             "Maximum request size is 4MB.", responses = {
                     @ApiResponse(responseCode = "204", description = "No content"),
                     @ApiResponse(responseCode = "400", description = "Bad Request", content = @Content(schema = @Schema(implementation = ErrorMessage.class))),
+                    @ApiResponse(responseCode = "409", description = "Experiment dataset mismatch", content = @Content(schema = @Schema(implementation = ErrorMessage.class))),
                     @ApiResponse(responseCode = "422", description = "Unprocessable Content", content = @Content(schema = @Schema(implementation = com.comet.opik.api.error.ErrorMessage.class))),
             })
     @RateLimited
@@ -388,7 +450,8 @@ public class ExperimentsResource {
         String workspaceId = requestContext.get().getWorkspaceId();
         String userName = requestContext.get().getUserName();
 
-        log.info("Recording experiment items in bulk, count '{}'", request.items().size());
+        log.info("Recording experiment items in bulk, count '{}', experimentId '{}'", request.items().size(),
+                request.experimentId());
 
         List<ExperimentItemBulkRecord> items = request.items()
                 .stream()
@@ -400,6 +463,7 @@ public class ExperimentsResource {
                 .toList();
 
         Experiment experiment = Experiment.builder()
+                .id(request.experimentId())
                 .datasetName(request.datasetName())
                 .name(request.experimentName())
                 .build();
@@ -407,10 +471,11 @@ public class ExperimentsResource {
         experimentItemBulkIngestionService.ingest(experiment, items)
                 .contextWrite(ctx -> ctx.put(RequestContext.USER_NAME, userName)
                         .put(RequestContext.WORKSPACE_ID, workspaceId))
-                .retryWhen(AsyncUtils.handleConnectionError())
+                .retryWhen(RetryUtils.handleConnectionError())
                 .block();
 
-        log.info("Recorded experiment items in bulk, count '{}'", request.items().size());
+        log.info("Recorded experiment items in bulk, count '{}', experimentId '{}'", request.items().size(),
+                request.experimentId());
 
         return Response.noContent().build();
     }

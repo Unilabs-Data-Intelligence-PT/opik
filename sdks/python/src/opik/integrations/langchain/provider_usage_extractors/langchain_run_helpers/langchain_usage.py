@@ -3,6 +3,9 @@ from typing import Optional, Dict, Any
 import pydantic
 
 
+LANGCHAIN_USAGE_KEYS = {"input_tokens", "output_tokens", "total_tokens"}
+
+
 class InputTokenDetails(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra="allow")
 
@@ -108,6 +111,20 @@ class LangChainUsage(pydantic.BaseModel):
 
         return anthropic_usage
 
+    def map_to_bedrock_usage(self) -> Dict[str, Any]:
+        bedrock_usage: Dict[str, Any] = {
+            "inputTokens": self.input_tokens,
+            "outputTokens": self.output_tokens,
+        }
+
+        if self.input_token_details is not None:
+            bedrock_usage["cacheReadInputTokens"] = self.input_token_details.cache_read
+            bedrock_usage["cacheWriteInputTokens"] = (
+                self.input_token_details.cache_creation
+            )
+
+        return bedrock_usage
+
     def map_to_openai_completions_usage(self) -> Dict[str, Any]:
         openai_usage: Dict[str, Any] = {
             "prompt_tokens": self.input_tokens,
@@ -137,3 +154,10 @@ class LangChainUsage(pydantic.BaseModel):
         }
 
         return groq_usage
+
+
+def is_langchain_usage(usage_dict: Dict[str, Any]) -> bool:
+    if usage_dict is None:
+        return False
+
+    return all(key in usage_dict for key in LANGCHAIN_USAGE_KEYS)
