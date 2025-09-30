@@ -1,14 +1,14 @@
-import React, { LegacyRef, useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 
-import CodeMirror, { ReactCodeMirrorProps, ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { EditorView } from "@codemirror/view";
-import { EditorState, Extension, StateEffect } from "@codemirror/state";
-import { jsonLanguage } from "@codemirror/lang-json";
-import { yamlLanguage } from "@codemirror/lang-yaml";
-import { pythonLanguage } from "@codemirror/lang-python";
-import { useCodemirrorTheme } from "@/hooks/useCodemirrorTheme";
-import { useCodemirrorLineHighlight } from "@/hooks/useCodemirrorLineHighlight";
 import CopyButton from "@/components/shared/CopyButton/CopyButton";
+import { useCodemirrorLineHighlight } from "@/hooks/useCodemirrorLineHighlight";
+import { useCodemirrorTheme } from "@/hooks/useCodemirrorTheme";
+import { jsonLanguage } from "@codemirror/lang-json";
+import { pythonLanguage } from "@codemirror/lang-python";
+import { yamlLanguage } from "@codemirror/lang-yaml";
+import { EditorState, Extension, StateEffect } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import CodeMirror, { ReactCodeMirrorRef } from "@uiw/react-codemirror";
 
 export enum SUPPORTED_LANGUAGE {
   json = "json",
@@ -38,18 +38,19 @@ const CodeEditor: React.FunctionComponent<CodeEditorProps> = ({
   onChange,
 }) => {
   const theme = useCodemirrorTheme();
-  const editorRef = useRef<ReactCodeMirrorRef| null>(null);
+  const editorRef = useRef<ReactCodeMirrorRef | null>(null);
 
   const LineHighlightExtension = useCodemirrorLineHighlight({
-    lines: highlightedLines
+    lines: highlightedLines,
   });
- const setHighlightedLines = StateEffect.define({
-    map: (lines:number[], mapping) => lines.map(line => mapping.mapPos(line)).filter(pos => pos !== null)
+  const setHighlightedLines = StateEffect.define({
+    map: (lines: number[], mapping) =>
+      lines.map((line) => mapping.mapPos(line)).filter((pos) => pos !== null),
   });
   useEffect(() => {
-        editorRef.current?.view?.dispatch({
-          effects: setHighlightedLines.of(highlightedLines||[])
-        })
+    editorRef.current?.view?.dispatch({
+      effects: setHighlightedLines.of(highlightedLines || []),
+    });
   }, [highlightedLines?.join(",")]);
 
   return (

@@ -13,7 +13,7 @@ const ConfiguredCodeHighlighter: React.FC<ConfiguredCodeHighlighterProps> = ({
   code,
   projectName,
   useEditor,
-  highlightedLines
+  highlightedLines,
 }) => {
   const apiKey = useUserApiKey();
   const workspaceName = useAppStore((state) => state.activeWorkspaceName);
@@ -32,9 +32,18 @@ const ConfiguredCodeHighlighter: React.FC<ConfiguredCodeHighlighterProps> = ({
     projectName,
   });
   return useEditor ? (
-    <CodeEditor data={codeWithConfig} copyData={codeWithConfigToCopy} onChange={useEditor} highlightedLines={highlightedLines} />
+    <CodeEditor
+      data={codeWithConfig}
+      copyData={codeWithConfigToCopy}
+      onChange={useEditor}
+      highlightedLines={highlightedLines}
+    />
   ) : (
-    <CodeHighlighter data={codeWithConfig} copyData={codeWithConfigToCopy} highlightedLines={highlightedLines} />
+    <CodeHighlighter
+      data={codeWithConfig}
+      copyData={codeWithConfigToCopy}
+      highlightedLines={highlightedLines}
+    />
   );
 };
 

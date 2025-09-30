@@ -1,47 +1,45 @@
-import React, { useState } from "react";
 import { Link } from "@tanstack/react-router";
+import React from "react";
 
+import { keepPreviousData } from "@tanstack/react-query";
 import {
-  Book,
-  Database,
-  FlaskConical,
-  GraduationCap,
-  LayoutGrid,
-  MessageCircleQuestion,
-  FileTerminal,
-  LucideHome,
   Blocks,
   Bolt,
+  Book,
   Brain,
   ChevronLeft,
   ChevronRight,
+  Database,
+  FileTerminal,
+  FlaskConical,
+  GraduationCap,
+  LayoutGrid,
+  LucideHome,
   SparklesIcon,
   UserPen,
 } from "lucide-react";
-import { keepPreviousData } from "@tanstack/react-query";
 
-import useAppStore from "@/store/AppStore";
-import useProjectsList from "@/api/projects/useProjectsList";
+import useAnnotationQueuesList from "@/api/annotation-queues/useAnnotationQueuesList";
+import useRulesList from "@/api/automations/useRulesList";
 import useDatasetsList from "@/api/datasets/useDatasetsList";
 import useExperimentsList from "@/api/datasets/useExperimentsList";
-import useRulesList from "@/api/automations/useRulesList";
 import useOptimizationsList from "@/api/optimizations/useOptimizationsList";
-import { OnChangeFn } from "@/types/shared";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { buildDocsUrl, cn } from "@/lib/utils";
-import Logo from "@/components/layout/Logo/Logo";
-import usePluginsStore from "@/store/PluginsStore";
-import ProvideFeedbackDialog from "@/components/layout/SideBar/FeedbackDialog/ProvideFeedbackDialog";
+import useProjectsList from "@/api/projects/useProjectsList";
 import usePromptsList from "@/api/prompts/usePromptsList";
-import useAnnotationQueuesList from "@/api/annotation-queues/useAnnotationQueuesList";
-import QuickstartDialog from "@/components/pages-shared/onboarding/QuickstartDialog/QuickstartDialog";
+import Logo from "@/components/layout/Logo/Logo";
 import GitHubStarListItem from "@/components/layout/SideBar/GitHubStarListItem/GitHubStarListItem";
 import SidebarMenuItem, {
   MENU_ITEM_TYPE,
   MenuItem,
   MenuItemGroup,
 } from "@/components/layout/SideBar/MenuItem/SidebarMenuItem";
+import QuickstartDialog from "@/components/pages-shared/onboarding/QuickstartDialog/QuickstartDialog";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { buildDocsUrl, cn } from "@/lib/utils";
+import useAppStore from "@/store/AppStore";
+import usePluginsStore from "@/store/PluginsStore";
+import { OnChangeFn } from "@/types/shared";
 
 const HOME_PATH = "/$workspaceName/home";
 
@@ -169,8 +167,6 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
   expanded,
   setExpanded,
 }) => {
-  const [openProvideFeedback, setOpenProvideFeedback] = useState(false);
-
   const {
     activeWorkspaceName: workspaceName,
     quickstartOpened,
@@ -275,30 +271,6 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
     annotation_queues: annotationQueuesData?.total,
   };
 
-  const bottomMenuItems: MenuItem[] = [
-    {
-      id: "documentation",
-      path: buildDocsUrl(),
-      type: MENU_ITEM_TYPE.link,
-      icon: Book,
-      label: "Documentation",
-    },
-    {
-      id: "quickstart",
-      type: MENU_ITEM_TYPE.button,
-      icon: GraduationCap,
-      label: "Quickstart guide",
-      onClick: () => setQuickstartOpened(true),
-    },
-    {
-      id: "provideFeedback",
-      type: MENU_ITEM_TYPE.button,
-      icon: MessageCircleQuestion,
-      label: "Provide feedback",
-      onClick: () => setOpenProvideFeedback(true),
-    },
-  ];
-
   const logo = LogoComponent ? (
     <LogoComponent expanded={expanded} />
   ) : (
@@ -331,13 +303,6 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
         icon: GraduationCap,
         label: "Quickstart guide",
         onClick: () => setQuickstartOpened(true),
-      },
-      {
-        id: "provideFeedback",
-        type: MENU_ITEM_TYPE.button,
-        icon: MessageCircleQuestion,
-        label: "Provide feedback",
-        onClick: () => setOpenProvideFeedback(true),
       },
     ]);
 

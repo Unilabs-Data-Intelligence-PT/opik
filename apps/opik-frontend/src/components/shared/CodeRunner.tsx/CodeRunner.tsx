@@ -1,17 +1,16 @@
-import React, { LegacyRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import CodeMirror, { ReactCodeMirrorProps, ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { EditorView } from "@codemirror/view";
-import { EditorState, Extension, StateEffect } from "@codemirror/state";
-import { jsonLanguage } from "@codemirror/lang-json";
-import { yamlLanguage } from "@codemirror/lang-yaml";
-import { pythonLanguage } from "@codemirror/lang-python";
-import { useCodemirrorTheme } from "@/hooks/useCodemirrorTheme";
-import { useCodemirrorLineHighlight } from "@/hooks/useCodemirrorLineHighlight";
-import CopyButton from "@/components/shared/CopyButton/CopyButton";
 import { Button, ButtonProps } from "@/components/ui/button";
-import { Check, Download, Play, RefreshCw } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { useCodemirrorLineHighlight } from "@/hooks/useCodemirrorLineHighlight";
+import { useCodemirrorTheme } from "@/hooks/useCodemirrorTheme";
+import { jsonLanguage } from "@codemirror/lang-json";
+import { pythonLanguage } from "@codemirror/lang-python";
+import { yamlLanguage } from "@codemirror/lang-yaml";
+import { EditorState, Extension, StateEffect } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import CodeMirror, { ReactCodeMirrorRef } from "@uiw/react-codemirror";
+import { Check, Download, Play, RefreshCw } from "lucide-react";
 import TooltipWrapper from "../TooltipWrapper/TooltipWrapper";
 
 export enum SUPPORTED_LANGUAGE {
@@ -35,7 +34,8 @@ type RunButtonProps = {
   className?: string;
   disabled?: boolean;
   icon?: React.ReactNode;
-} & Pick<ButtonProps, "size">&Pick<CodeRunnerProps, "actionType">
+} & Pick<ButtonProps, "size"> &
+  Pick<CodeRunnerProps, "actionType">;
 
 type CodeRunnerProps = {
   data: string;
@@ -48,22 +48,22 @@ type CodeRunnerProps = {
 };
 
 const actionMap = {
-  "run": {
-    "message": "Running code",
-    "tooltipText": "Run code",
-    "icon": <Play />
+  run: {
+    message: "Running code",
+    tooltipText: "Run code",
+    icon: <Play />,
   },
-  "install": {
-    "message": "Installing package",
-    "tooltipText": "Install package",
-    "icon": <Download />
+  install: {
+    message: "Installing package",
+    tooltipText: "Install package",
+    icon: <Download />,
   },
-  "update": {
-    "message": "Updating package",
-    "tooltipText": "Update package",
-    "icon": <RefreshCw />
-  }
-}
+  update: {
+    message: "Updating package",
+    tooltipText: "Update package",
+    icon: <RefreshCw />,
+  },
+};
 
 const RunButton: React.FunctionComponent<RunButtonProps> = ({
   onClick,
@@ -75,14 +75,14 @@ const RunButton: React.FunctionComponent<RunButtonProps> = ({
   size = "icon-sm",
   disabled = false,
   icon = <Play />,
-  actionType = "run"
+  actionType = "run",
 }) => {
   const { toast } = useToast();
   const [showSuccessIcon, setShowSuccessIcon] = useState(false);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    if (actionType=="run" && showSuccessIcon) {
+    if (actionType == "run" && showSuccessIcon) {
       timer = setTimeout(() => setShowSuccessIcon(false), successIconTimeout);
     }
     return () => {
@@ -121,7 +121,6 @@ const RunButton: React.FunctionComponent<RunButtonProps> = ({
   );
 };
 
-
 const CodeRunner: React.FunctionComponent<CodeRunnerProps> = ({
   data,
   language = SUPPORTED_LANGUAGE.python,
@@ -129,25 +128,26 @@ const CodeRunner: React.FunctionComponent<CodeRunnerProps> = ({
   onChange,
   onClick,
   disabled = false,
-  actionType = "run"
+  actionType = "run",
 }) => {
   const theme = useCodemirrorTheme();
   const editorRef = useRef<ReactCodeMirrorRef | null>(null);
 
   const LineHighlightExtension = useCodemirrorLineHighlight({
-    lines: highlightedLines
+    lines: highlightedLines,
   });
   const setHighlightedLines = StateEffect.define({
-    map: (lines: number[], mapping) => lines.map(line => mapping.mapPos(line)).filter(pos => pos !== null)
+    map: (lines: number[], mapping) =>
+      lines.map((line) => mapping.mapPos(line)).filter((pos) => pos !== null),
   });
   useEffect(() => {
     editorRef.current?.view?.dispatch({
-      effects: setHighlightedLines.of(highlightedLines || [])
-    })
+      effects: setHighlightedLines.of(highlightedLines || []),
+    });
   }, [highlightedLines?.join(",")]);
   return (
     <div className="relative overflow-hidden rounded-md bg-primary-foreground">
-      <div className="absolute right-0 bottom-[-0.125rem] z-10">
+      <div className="absolute -bottom-0.5 right-0 z-10">
         <RunButton
           message={actionMap[actionType].message}
           tooltipText={actionMap[actionType].tooltipText}

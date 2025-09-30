@@ -1,6 +1,12 @@
 import useDatasetsList from "@/api/datasets/useDatasetsList";
 import useProjectsList from "@/api/projects/useProjectsList";
-import { getPackage, getPackages, installPackage, PackagesInfoResponse, queueTestRun } from "@/api/test-runner/testRunner";
+import {
+  getPackage,
+  getPackages,
+  installPackage,
+  PackagesInfoResponse,
+  queueTestRun,
+} from "@/api/test-runner/testRunner";
 import ConfiguredCodeHighlighter from "@/components/pages-shared/onboarding/ConfiguredCodeHighlighter/ConfiguredCodeHighlighter";
 import CodeRunner from "@/components/shared/CodeRunner.tsx/CodeRunner";
 import CopyButton from "@/components/shared/CopyButton/CopyButton";
@@ -13,16 +19,12 @@ import { SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
-import { cn } from "@/lib/utils";
+import { buildDocsUrl, cn } from "@/lib/utils";
 import useAppStore from "@/store/AppStore";
 import { DropdownOption } from "@/types/shared";
 import { keepPreviousData } from "@tanstack/react-query";
-import { AlertTriangle, Play } from "lucide-react";
+import { AlertTriangle, Play, SquareArrowOutUpRight } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import ApiKeyCard from "@/components/pages-shared/onboarding/ApiKeyCard/ApiKeyCard";
-import GoogleColabCard from "@/components/pages-shared/onboarding/GoogleColabCard/GoogleColabCard";
-import { buildDocsUrl } from "@/lib/utils";
-import { SquareArrowOutUpRight } from "lucide-react";
 
 const EVALUATION_TASK_REPLACE = "!{EVALUATION_TASK}";
 const EVALUATION_TASK_NAME_REPLACE = "!{EVALUATION_TASK_NAME}";
@@ -159,7 +161,12 @@ type AddExperimentDialogProps = {
 
 const AddExperimentDialog: React.FunctionComponent<
   AddExperimentDialogProps
-> = ({ open, setOpen, datasetName: initialDatasetName = "", projectName: initialProjectName = "" }) => {
+> = ({
+  open,
+  setOpen,
+  datasetName: initialDatasetName = "",
+  projectName: initialProjectName = "",
+}) => {
   const workspaceName = useAppStore((state) => state.activeWorkspaceName);
 
   const [isLoadedMoreProjects, setIsLoadedMoreProjects] = useState(false);
@@ -171,30 +178,30 @@ const AddExperimentDialog: React.FunctionComponent<
   ]); // Set the first heuristic model as checked
 
   const [experimentName, setExperimentName] = useState("");
-  const useExperimentName = experimentName || (projectName && datasetName ? (projectName + " | " + datasetName) : "")
-
+  const useExperimentName =
+    experimentName ||
+    (projectName && datasetName ? projectName + " | " + datasetName : "");
 
   const importString =
     models.length > 0
       ? `from opik.evaluation.metrics import (${models
-        .map((m) => EVALUATOR_MODEL_MAP[m].class)
-        .join(", ")})
+          .map((m) => EVALUATOR_MODEL_MAP[m].class)
+          .join(", ")})
   `
       : ``;
 
   const metricsString =
     models.length > 0
       ? `\nmetrics = [${models
-        .map(
-          (m) =>
-            EVALUATOR_MODEL_MAP[m].class +
-            "(" +
-            (EVALUATOR_MODEL_MAP[m].initParameters || "") +
-            ")",
-        )
-        .join(", ")}]\n`
+          .map(
+            (m) =>
+              EVALUATOR_MODEL_MAP[m].class +
+              "(" +
+              (EVALUATOR_MODEL_MAP[m].initParameters || "") +
+              ")",
+          )
+          .join(", ")}]\n`
       : "";
-
 
   const metricsParam =
     models.length > 0
@@ -215,7 +222,8 @@ import llm_kit #monkey patching opik
 ${importString}
 
 client = Opik(project_name="${projectName || "project name placeholder"}")
-dataset = client.get_dataset(name="${datasetName || "dataset name placeholder"
+dataset = client.get_dataset(name="${
+      datasetName || "dataset name placeholder"
     }")
 
 ${EVALUATION_TASK_REPLACE}
@@ -229,11 +237,15 @@ eval_results = evaluate(
 )`;
 
   const { data: projectData, isLoading: projectIsLoading } = useProjectsList(
-    { workspaceName, page: 1, size: isLoadedMoreProjects ? 10000 : DEFAULT_LOADED_PROJECT_ITEMS },
+    {
+      workspaceName,
+      page: 1,
+      size: isLoadedMoreProjects ? 10000 : DEFAULT_LOADED_PROJECT_ITEMS,
+    },
     {
       placeholderData: keepPreviousData,
-    }
-  )
+    },
+  );
 
   const { data: datasetData, isLoading: datasetIsLoading } = useDatasetsList(
     {
@@ -249,8 +261,14 @@ eval_results = evaluate(
   const totalDatasets = datasetData?.total ?? 0;
   const totalProjects = projectData?.total ?? 0;
 
-  const loadMoreProjectsHandler = useCallback(() => setIsLoadedMoreProjects(true), []);
-  const loadMoreDatasetsHandler = useCallback(() => setIsLoadedMoreDatasets(true), []);
+  const loadMoreProjectsHandler = useCallback(
+    () => setIsLoadedMoreProjects(true),
+    [],
+  );
+  const loadMoreDatasetsHandler = useCallback(
+    () => setIsLoadedMoreDatasets(true),
+    [],
+  );
 
   const datasetOptions: DropdownOption<string>[] = useMemo(() => {
     return (datasetData?.content || []).map((dataset) => ({
@@ -325,30 +343,57 @@ eval_results = evaluate(
 
   const [fullCode, setFullCode] = useState(section3);
   const [section3Code, setSection3Code] = useState(section3);
-  const [evalFunction, setEvalFunction] = useState("def evaluation_task(dataset_item):\n  # your LLM application is called here\n\n  result = {\"output\": \"placeholder string\", \"reference\": \"placeholder string\"}\n\n  return result");
+  const [evalFunction, setEvalFunction] = useState(
+    `def evaluation_task(dataset_item):\n  # your LLM application is called here\n\n  result = {"output": "placeholder string", "reference": "placeholder string"}\n\n  return result`,
+  );
   const [installPackageText, setInstallPackageText] = useState("");
   const [selectedImport, setSelectedImport] = useState<null | string>(null);
   const [importsData, setImportsData] = useState<PackagesInfoResponse>({});
   const [loadingImportData, setLoadingImportData] = useState(false);
   const [queueingTest, setQueueingTest] = useState(false);
   const { toast } = useToast();
-  const evalFuncName = evalFunction.match(/def (\w+)\(/)?.[1] || "PLEASE REVIEW YOUR CODE"
+  const evalFuncName =
+    evalFunction.match(/def (\w+)\(/)?.[1] || "PLEASE REVIEW YOUR CODE";
 
   useEffect(() => {
     setSection3Code(section3);
   }, [section3]);
 
   useEffect(() => {
-    setFullCode(section3Code.replace(EVALUATION_TASK_NAME_REPLACE, evalFuncName).replace(EVALUATION_TASK_REPLACE, evalFunction));
+    setFullCode(
+      section3Code
+        .replace(EVALUATION_TASK_NAME_REPLACE, evalFuncName)
+        .replace(EVALUATION_TASK_REPLACE, evalFunction),
+    );
   }, [section3Code, evalFunction]);
 
-  const missingFields = [...new Set(models.flatMap(m => EVALUATOR_MODEL_MAP[m].scoreParameters))].filter(param => param && !evalFunction.includes(`"${param}"`))
-  const IGNORE_IMPORTS = ["os", "json", "re", "math", "sys", "time", "datetime"];
+  const missingFields = [
+    ...new Set(models.flatMap((m) => EVALUATOR_MODEL_MAP[m].scoreParameters)),
+  ].filter((param) => param && !evalFunction.includes(`"${param}"`));
+  const IGNORE_IMPORTS = [
+    "os",
+    "json",
+    "re",
+    "math",
+    "sys",
+    "time",
+    "datetime",
+  ];
 
-  const imports = useMemo(() => [... new Set(fullCode.split("\n").map(line => {
-    const match = line.trim().match(/^(from|import) (\w+)\.?/);
-    return match ? match[2] : "";
-  }).filter((pkg) => pkg && !IGNORE_IMPORTS.includes(pkg)))], [fullCode]);
+  const imports = useMemo(
+    () => [
+      ...new Set(
+        fullCode
+          .split("\n")
+          .map((line) => {
+            const match = line.trim().match(/^(from|import) (\w+)\.?/);
+            return match ? match[2] : "";
+          })
+          .filter((pkg) => pkg && !IGNORE_IMPORTS.includes(pkg)),
+      ),
+    ],
+    [fullCode],
+  );
 
   const importsRef = React.useRef(imports);
   importsRef.current = imports;
@@ -369,16 +414,21 @@ eval_results = evaluate(
   }, [importsRef.current.join(",")]);
 
   const linkClasses = cn(
-    "comet-body-s flex h-9 w-full items-center gap-2 text-foreground rounded-md hover:bg-primary-foreground data-[status=active]:bg-primary-100 data-[status=active]:text-primary", "pl-[10px] pr-3",
+    "comet-body-s flex h-9 w-full items-center gap-2 text-foreground rounded-md hover:bg-primary-foreground data-[status=active]:bg-primary-100 data-[status=active]:text-primary",
+    "pl-[10px] pr-3",
   );
   const triggerUpdate = (evalCode: boolean, fullCode: boolean) => {
     if (fullCode) {
-      setSection3Code(section3Code.endsWith(" ") ? section3Code.trim() : section3Code + " ");
+      setSection3Code(
+        section3Code.endsWith(" ") ? section3Code.trim() : section3Code + " ",
+      );
     }
     if (evalCode) {
-      setEvalFunction(evalFunction.endsWith(" ") ? evalFunction.trim() : evalFunction + " ");
+      setEvalFunction(
+        evalFunction.endsWith(" ") ? evalFunction.trim() : evalFunction + " ",
+      );
     }
-  }
+  };
 
   return (
     <SideDialog open={open} setOpen={openChangeHandler}>
@@ -419,13 +469,15 @@ eval_results = evaluate(
               placeholder="Select a project"
               onChange={setProjectName}
               onLoadMore={
-                totalProjects > DEFAULT_LOADED_PROJECT_ITEMS && !isLoadedMoreProjects
+                totalProjects > DEFAULT_LOADED_PROJECT_ITEMS &&
+                !isLoadedMoreProjects
                   ? loadMoreProjectsHandler
                   : undefined
               }
               isLoading={projectIsLoading}
               optionsCount={DEFAULT_LOADED_PROJECT_ITEMS}
-            />  <div className="comet-body-s mt-4 text-foreground-secondary">
+            />{" "}
+            <div className="comet-body-s mt-4 text-foreground-secondary">
               2. Select dataset
             </div>
             <LoadableSelectBox
@@ -434,95 +486,209 @@ eval_results = evaluate(
               placeholder="Select a dataset"
               onChange={setDatasetName}
               onLoadMore={
-                totalDatasets > DEFAULT_LOADED_DATASET_ITEMS && !isLoadedMoreDatasets
+                totalDatasets > DEFAULT_LOADED_DATASET_ITEMS &&
+                !isLoadedMoreDatasets
                   ? loadMoreDatasetsHandler
                   : undefined
               }
               isLoading={datasetIsLoading}
               optionsCount={DEFAULT_LOADED_DATASET_ITEMS}
-            /> <div className="comet-body-s mt-4 text-foreground-secondary">
+            />{" "}
+            <div className="comet-body-s mt-4 text-foreground-secondary">
               3. Name the experiment
             </div>
-            <Input placeholder="Experiment name" value={useExperimentName} onChange={(e) => {
-              setExperimentName(e.target.value);
-            }} />
-
+            <Input
+              placeholder="Experiment name"
+              value={useExperimentName}
+              onChange={(e) => {
+                setExperimentName(e.target.value);
+              }}
+            />
             <div className="comet-body-s mt-4 text-foreground-secondary">
               4. Define experiment function
               <br />
-              <span className="comet-body-s mt-0.5 text-light-slate">You may also add other custom code here, it won't be replaced by auto-generated code</span>
-            </div>
-            <ConfiguredCodeHighlighter highlightedLines={selectedImport == null ? [] : evalFunction.split("\n").map((line, index) => line.trim().match(new RegExp(`^(from|import) ${selectedImport}`)) ? index + 1 : null).filter(index => index !== null)} code={evalFunction} useEditor={(value) => setEvalFunction(value)} />
-            {missingFields.length > 0 && <span className="comet-body-s mt-0.5 text-light-slate" style={{ display: "flex" }}>
-              <AlertTriangle color="#ffcc00" size={16} style={{ display: "inline-block" }} />
-              <span style={{ display: "inline-block", marginLeft: "0.25em" }}>
-                Experiment result seems to be missing field{missingFields.length > 0 ? "s: " : ": "}
-                {missingFields.slice(0, -1).map((param, index, arr) => <React.Fragment key={index}><b>{param}</b>{index == arr.length - 1 ? "" : ","} </React.Fragment>)}
-                {missingFields.length > 1 && "and "}
-                <b>{missingFields[missingFields.length - 1]}</b>
+              <span className="comet-body-s mt-0.5 text-light-slate">
+                You may also add other custom code here, it will not be replaced
+                by auto-generated code
               </span>
-            </span>}
-
+            </div>
+            <ConfiguredCodeHighlighter
+              highlightedLines={
+                selectedImport == null
+                  ? []
+                  : evalFunction
+                      .split("\n")
+                      .map((line, index) =>
+                        line
+                          .trim()
+                          .match(new RegExp(`^(from|import) ${selectedImport}`))
+                          ? index + 1
+                          : null,
+                      )
+                      .filter((index) => index !== null)
+              }
+              code={evalFunction}
+              useEditor={(value) => setEvalFunction(value)}
+            />
+            {missingFields.length > 0 && (
+              <span
+                className="comet-body-s mt-0.5 text-light-slate"
+                style={{ display: "flex" }}
+              >
+                <AlertTriangle
+                  color="#ffcc00"
+                  size={16}
+                  style={{ display: "inline-block" }}
+                />
+                <span style={{ display: "inline-block", marginLeft: "0.25em" }}>
+                  Experiment result seems to be missing field
+                  {missingFields.length > 0 ? "s: " : ": "}
+                  {missingFields.slice(0, -1).map((param, index, arr) => (
+                    <React.Fragment key={index}>
+                      <b>{param}</b>
+                      {index == arr.length - 1 ? "" : ","}{" "}
+                    </React.Fragment>
+                  ))}
+                  {missingFields.length > 1 && "and "}
+                  <b>{missingFields[missingFields.length - 1]}</b>
+                </span>
+              </span>
+            )}
             <div className="comet-body-s mt-4 text-foreground-secondary">
               5. Validate and adjust the generated code
             </div>
-            {<ConfiguredCodeHighlighter highlightedLines={selectedImport == null ? [] : fullCode.split("\n").map((line, index) => line.trim().match(new RegExp(`^(from|import) ${selectedImport}`)) ? index + 1 : null).filter(index => index !== null)} code={fullCode} useEditor={(value) => {
-              //prevent changes on evalFunction code
-              if (!value.includes(evalFunction)) {
-                triggerUpdate(false, true);
-                return
-              }
-              const templateCode = value.replace(evalFunction, EVALUATION_TASK_REPLACE).replace(`task=${evalFuncName}`, `task=${EVALUATION_TASK_NAME_REPLACE}`);
-              setSection3Code(templateCode);
-            }} />}
-            <Button disabled={!useExperimentName || datasetName === "" || projectName === "" || queueingTest} onClick={() => {
-              setQueueingTest(true);
-              queueTestRun({ name: useExperimentName, install_dependencies: [], code: fullCode }).then(
-                (data) => {
-                  toast({
-                    title: `Experiment ${useExperimentName} queued`, description: <div className="relative pr-2.5">{`Id: ${data.id}`}  <TooltipProvider
-                      delayDuration={500}
-                      skipDelayDuration={0}
-                    > <div className="absolute right-[-1.5em] top-[-0.5em]"><CopyButton tooltipText="Copy" text={data.id} /></div>
-                    </TooltipProvider>
-                    </div>
-                  })
-                  setOpen(false);
-                  setQueueingTest(false);
+            {
+              <ConfiguredCodeHighlighter
+                highlightedLines={
+                  selectedImport == null
+                    ? []
+                    : fullCode
+                        .split("\n")
+                        .map((line, index) =>
+                          line
+                            .trim()
+                            .match(
+                              new RegExp(`^(from|import) ${selectedImport}`),
+                            )
+                            ? index + 1
+                            : null,
+                        )
+                        .filter((index) => index !== null)
                 }
-              ).catch((error) => { toast({ title: "Error queuing experiment", description: error.message, variant: "destructive" }); setQueueingTest(false); })
+                code={fullCode}
+                useEditor={(value) => {
+                  //prevent changes on evalFunction code
+                  if (!value.includes(evalFunction)) {
+                    triggerUpdate(false, true);
+                    return;
+                  }
+                  const templateCode = value
+                    .replace(evalFunction, EVALUATION_TASK_REPLACE)
+                    .replace(
+                      `task=${evalFuncName}`,
+                      `task=${EVALUATION_TASK_NAME_REPLACE}`,
+                    );
+                  setSection3Code(templateCode);
+                }}
+              />
             }
-            } size="sm" className="h-7 gap-2 px-4">
+            <Button
+              disabled={
+                !useExperimentName ||
+                datasetName === "" ||
+                projectName === "" ||
+                queueingTest
+              }
+              onClick={() => {
+                setQueueingTest(true);
+                queueTestRun({
+                  name: useExperimentName,
+                  install_dependencies: [],
+                  code: fullCode,
+                })
+                  .then((data) => {
+                    toast({
+                      title: `Experiment ${useExperimentName} queued`,
+                      description: (
+                        <div className="relative pr-2.5">
+                          {`Id: ${data.id}`}{" "}
+                          <TooltipProvider
+                            delayDuration={500}
+                            skipDelayDuration={0}
+                          >
+                            {" "}
+                            <div className="absolute right-[-1.5em] top-[-0.5em]">
+                              <CopyButton tooltipText="Copy" text={data.id} />
+                            </div>
+                          </TooltipProvider>
+                        </div>
+                      ),
+                    });
+                    setOpen(false);
+                    setQueueingTest(false);
+                  })
+                  .catch((error) => {
+                    toast({
+                      title: "Error queuing experiment",
+                      description: error.message,
+                      variant: "destructive",
+                    });
+                    setQueueingTest(false);
+                  });
+              }}
+              size="sm"
+              className="h-7 gap-2 px-4"
+            >
               Queue Experiment <Play size="20" />
             </Button>
           </div>
           <div className="flex w-[250px] shrink-0 flex-col gap-2">
             <div className="comet-title-s">Handle imports</div>
             <ul className="rounded-md border border-slate-200 p-2">
-              {
-                imports.map(imp => (
-                  <li key={imp} className="flex">
-                    <button
-                      data-status={selectedImport === imp ? "active" : undefined}
-                      onClick={async () => {
-                        if (selectedImport === imp) {
-                          setSelectedImport(null);
-                          return;
-                        }
-                        setSelectedImport(imp);
-                        setInstallPackageText(imp || "")
-                        // triggerUpdate(true, false);
-                      }} className={cn(linkClasses, "text-left relative")}>
-                      {imp} <span className="text-light-slate text-xs">{importsData[imp]?.version ? importsData[imp]?.version : loadingImportData ? <Spinner className="size-3" /> : <i>not installed</i>}</span>
-                      {!importsData[imp]?.version && !loadingImportData && <AlertTriangle color="#c9370bff" size={16} className="absolute right-2" />}
-                    </button>
-                  </li>
-                ))
-              }
+              {imports.map((imp) => (
+                <li key={imp} className="flex">
+                  <button
+                    data-status={selectedImport === imp ? "active" : undefined}
+                    onClick={async () => {
+                      if (selectedImport === imp) {
+                        setSelectedImport(null);
+                        return;
+                      }
+                      setSelectedImport(imp);
+                      setInstallPackageText(imp || "");
+                      // triggerUpdate(true, false);
+                    }}
+                    className={cn(linkClasses, "text-left relative")}
+                  >
+                    {imp}{" "}
+                    <span className="text-xs text-light-slate">
+                      {importsData[imp]?.version ? (
+                        importsData[imp]?.version
+                      ) : loadingImportData ? (
+                        <Spinner className="size-3" />
+                      ) : (
+                        <i>not installed</i>
+                      )}
+                    </span>
+                    {!importsData[imp]?.version && !loadingImportData && (
+                      <AlertTriangle
+                        color="#c9370bff"
+                        size={16}
+                        className="absolute right-2"
+                      />
+                    )}
+                  </button>
+                </li>
+              ))}
             </ul>
-            {selectedImport != null &&
+            {selectedImport != null && (
               <div className="relative rounded-md border border-slate-200 p-2">
-                <CodeRunner key={selectedImport} actionType={importsData[selectedImport] ? "update" : "install"} data={"pip install " + installPackageText}
+                <CodeRunner
+                  key={selectedImport}
+                  actionType={
+                    importsData[selectedImport] ? "update" : "install"
+                  }
+                  data={"pip install " + installPackageText}
                   disabled={installPackageText.trim() === ""}
                   onClick={async () => {
                     if (!installPackageText) {
@@ -530,40 +696,59 @@ eval_results = evaluate(
                     }
 
                     const currentSelectedPackage = selectedImport;
-                    setImportsData((state) => ({ ...state, [currentSelectedPackage]: null }));
+                    setImportsData((state) => ({
+                      ...state,
+                      [currentSelectedPackage]: null,
+                    }));
                     setLoadingImportData(true);
-                    await installPackage(installPackageText.trim())
-                    const packageData = await getPackage(currentSelectedPackage)
-                    setImportsData((state) => ({ ...state, [currentSelectedPackage]: packageData }));
+                    await installPackage(installPackageText.trim());
+                    const packageData = await getPackage(
+                      currentSelectedPackage,
+                    );
+                    setImportsData((state) => ({
+                      ...state,
+                      [currentSelectedPackage]: packageData,
+                    }));
                     setLoadingImportData(false);
-
                   }}
                   onChange={(value) => {
                     const splitted = value.split("pip install ");
                     if (splitted.length == 1 || !value.startsWith("pip")) {
-                      setInstallPackageText(installPackageText.endsWith(" ") ? installPackageText.trim() : installPackageText + " ");
+                      setInstallPackageText(
+                        installPackageText.endsWith(" ")
+                          ? installPackageText.trim()
+                          : installPackageText + " ",
+                      );
                       return;
                     }
-                    const splitParagraph = splitted[1].split("\n")
+                    const splitParagraph = splitted[1].split("\n");
                     if (splitParagraph.length > 1) {
-                      setInstallPackageText(installPackageText.endsWith(" ") ? splitParagraph[0].trim() : splitParagraph[0] + " ");
+                      setInstallPackageText(
+                        installPackageText.endsWith(" ")
+                          ? splitParagraph[0].trim()
+                          : splitParagraph[0] + " ",
+                      );
                       return;
                     }
                     setInstallPackageText(splitParagraph[0]);
-                  }} />
-                <div style={{
-                  background: "rgba(248,250,252,0.5)",
-                  position: "absolute",
-                  top: "9px",
-                  left: "40px",
-                  width: "85px",
-                  height: "25px"
-                }} />
-              </div>}
+                  }}
+                />
+                <div
+                  style={{
+                    background: "rgba(248,250,252,0.5)",
+                    position: "absolute",
+                    top: "9px",
+                    left: "40px",
+                    width: "85px",
+                    height: "25px",
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </SideDialog >
+    </SideDialog>
   );
 };
 
