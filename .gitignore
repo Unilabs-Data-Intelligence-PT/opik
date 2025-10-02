@@ -86,3 +86,5 @@ response.txt
 
 # Playwright
 .playwright-mcp/
+
+apps/opik-test-runner/.env

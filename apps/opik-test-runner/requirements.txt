@@ -1,0 +1,4 @@
+celery
+fastapi[standard]
+mysql-connector-python
+redis

@@ -29,6 +29,8 @@ export const ANNOTATION_QUEUES_REST_ENDPOINT = "/v1/private/annotation-queues/";
 export const WORKSPACES_REST_ENDPOINT = "/v1/private/workspaces/";
 export const WORKSPACE_CONFIG_REST_ENDPOINT =
   "/v1/private/workspaces/configurations/";
+export const TEST_RUNNER_QUEUE = "/testrunner/queue";
+export const TEST_RUNNER_PACKAGE = "/testrunner/packages";
 export const TRACE_ANALYZER_REST_ENDPOINT = "/trace-analyzer/session/";
 export const PLAYGROUND_EVALUATION_REST_ENDPOINT =
   "/v1/private/playground/evaluations/";

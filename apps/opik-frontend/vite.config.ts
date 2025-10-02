@@ -37,8 +37,28 @@ export default defineConfig(({ mode }) => {
       sourcemap: true,
     },
     server: {
+      hmr: false,
       host: "0.0.0.0",
       port: 5174,
+      proxy: {
+        "/api/testrunner": {
+          target: "http://localhost:8001",
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => {
+            console.log("testRunner yay", path);
+            return path.replace(/^\/api\/testrunner/, "");
+          },
+        },
+        "/api": {
+          target: "http://localhost:8080",
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => {
+            return path.replace(/^\/api/, "");
+          },
+        },
+      },
     },
   } satisfies UserConfig;
 });

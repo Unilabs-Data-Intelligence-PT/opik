@@ -1,0 +1,15 @@
+#!/bin/bash
+
+cd /src
+
+fastapi run server.py --port=8001 &
+SERVER_PID=$!
+
+celery -A tasks worker --loglevel=INFO &
+CELERY_PID=$!
+
+# Wait for any of the background processes to exit
+wait -n
+
+# Exit with the status of the process that exited
+exit $?

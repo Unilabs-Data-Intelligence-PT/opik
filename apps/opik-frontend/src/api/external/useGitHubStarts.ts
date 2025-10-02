@@ -85,7 +85,7 @@ export interface RepositoryResponse {
 const getGitHubStarts = async ({ signal }: QueryFunctionContext) => {
   try {
     const { data } = await api.get<RepositoryResponse | null>(
-      "https://api.github.com/repos/comet-ml/opik",
+      "https://github.com/Unilabs-Data-Intelligence-PT/opik",
       {
         signal,
       },

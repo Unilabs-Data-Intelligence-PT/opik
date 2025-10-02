@@ -268,6 +268,22 @@ services:
       OTEL_COLLECTOR_HOST: ${OTEL_COLLECTOR_HOST:-otel-collector}
       OTEL_COLLECTOR_PORT: ${OTEL_COLLECTOR_PORT:-4317}
 
+  python-test-runner:
+    build:
+      context: ../../apps/opik-test-runner
+      dockerfile: Dockerfile
+    environment:
+      STATE_DB_URL: mysql
+      STATE_DB_DATABASE_NAME: opik
+      STATE_DB_USER: opik
+      STATE_DB_PASS: opik
+      REDIS_URL: redis://:opik@redis:6379/
+    ports:
+      - "8001:8001"
+
+    hostname: python-test-runner
+    privileged: true # Required for Docker-in-Docker, so it can launch containers
+
 networks:
   default:
 
