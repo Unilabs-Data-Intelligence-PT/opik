@@ -473,12 +473,13 @@ kubectl get challenges -n opik
 
 Once deployed, the following endpoints are accessible from the internet after Azure Entra ID authentication:
 
-| Endpoint Path              | Service            | Description                                           |
-| -------------------------- | ------------------ | ----------------------------------------------------- |
-| `/`                        | **Frontend**       | Complete Opik web interface                           |
-| `/v1/private/*`            | **Java Backend**   | Main API endpoints (projects, datasets, traces, etc.) |
-| `/v1/private/evaluators/*` | **Python Backend** | Code evaluation and execution endpoints               |
-| `/health-check`            | **Java Backend**   | Health monitoring endpoint                            |
+| Endpoint Path              | Service                  | Description                                           |
+| -------------------------- | ------------------------ | ----------------------------------------------------- |
+| `/`                        | **Frontend**             | Complete Opik web interface                           |
+| `/v1/private/*`            | **Java Backend**         | Main API endpoints (projects, datasets, traces, etc.) |
+| `/v1/private/evaluators/*` | **Python Backend**       | Code evaluation and execution endpoints               |
+| `/api/testrunner/*`        | **Python Test Runner**   | Package management and test execution endpoints      |
+| `/health-check`            | **Java Backend**         | Health monitoring endpoint                            |
 
 ## 🏗️ Architecture Overview
 
@@ -568,6 +569,7 @@ graph TB
     LB --> |HTTPS/HTTP| NGINXIngress[🔀 NGINX Ingress Controller<br/>SSL Termination]
     
     NGINXIngress --> |"/ (Root Path)"| OAuth2[🔐 OAuth2 Proxy<br/>Azure Entra ID Auth]
+    NGINXIngress --> |"/api/testrunner/*"| PythonTestRunner[🧪 Python Test Runner<br/>Package & Code Execution<br/>Port: 8001]
     NGINXIngress --> |"/v1/private/evaluators/*"| PythonBackend[🐍 Python Backend<br/>Evaluator Service<br/>Port: 8000]
     NGINXIngress --> |"/v1/* (Fallback)"| Backend[⚙️ Java Backend<br/>Main API<br/>Port: 8080]
     
@@ -586,6 +588,7 @@ graph TB
             Frontend
             Backend
             PythonBackend
+            PythonTestRunner
             SandboxExecutor[🔒 Sandbox Executor]
             OAuth2
             
@@ -615,6 +618,8 @@ graph TB
     Backend --> MinIO
     ClickHouse --> ZooKeeper
     PythonBackend --> SandboxExecutor
+    PythonTestRunner --> MySQL
+    PythonTestRunner --> Redis
     NGINXIngress -.-> |Manages| NGINXPods
     CertManager --> LetsEncrypt
 
@@ -640,7 +645,7 @@ graph TB
     classDef auth fill:#fff8e1,stroke:#ff9800
 
     class Frontend frontend
-    class Backend,PythonBackend,SandboxExecutor backend
+    class Backend,PythonBackend,PythonTestRunner,SandboxExecutor backend
     class MySQL,ClickHouse,Redis,MinIO,ZooKeeper database
     class Network,AKSSubnet network
     class DeploymentFlow,NGINXScript,ACR,AzureInfra,NGINXHelmChart,NGINXController,NGINXIngress,NGINXPods deployment

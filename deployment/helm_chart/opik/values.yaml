@@ -279,6 +279,40 @@ component:
       # proxy_buffering: 'on'
       # proxy_request_buffering: 'on'
 
+  python-test-runner:
+    enabled: false  # Disabled by default, can be enabled in specific deployments
+    serviceAccount:
+      create: true
+      name: opik-python-test-runner
+    image:
+      repository: opik-test-runner
+      pullPolicy: IfNotPresent
+      tag: latest
+    replicaCount: 1
+    autoscaling:
+      enabled: false
+    securityContext:
+      privileged: true  # Required for Docker-in-Docker
+    env:
+      STATE_DB_URL: "opik-mysql"
+      STATE_DB_DATABASE_NAME: "opik"
+      STATE_DB_USER: "opik"
+      STATE_DB_PASS: "opik"
+      REDIS_URL: "redis://:wFSuJX9nDBdCa25sKZG7bh@opik-redis-master:6379/"
+    ports:
+      - name: http
+        containerPort: 8001
+        protocol: TCP
+    service:
+      type: ClusterIP
+      ports:
+        - name: http
+          port: 8001
+          protocol: TCP
+          targetPort: 8001
+    ingress:
+      enabled: false
+
 mysql:
   enabled: true
   image:

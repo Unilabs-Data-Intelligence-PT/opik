@@ -185,6 +185,43 @@ component:
     ingress:
       enabled: false  # Handled by main ingress above
 
+  python-test-runner:
+    enabled: true
+    serviceAccount:
+      create: true
+      name: opik-python-test-runner
+    metrics:
+      enabled: false
+    backendConfigMap:
+      enabled: false
+    image:
+      repository: opik-test-runner
+      tag: $OPIK_VERSION
+    replicaCount: 1
+    autoscaling:
+      enabled: false
+    securityContext:
+      privileged: true  # Required for Docker-in-Docker
+    env:
+      STATE_DB_URL: "opik-mysql"
+      STATE_DB_DATABASE_NAME: "opik"
+      STATE_DB_USER: "opik"
+      STATE_DB_PASS: "opik"
+      REDIS_URL: "redis://:wFSuJX9nDBdCa25sKZG7bh@opik-redis-master:6379/"
+    ports:
+      - name: http
+        containerPort: 8001
+        protocol: TCP
+    service:
+      type: ClusterIP
+      ports:
+        - name: http
+          port: 8001
+          protocol: TCP
+          targetPort: 8001
+    ingress:
+      enabled: false  # This service typically doesn't need external access
+
 # Disable demo data generation for production
 demoDataJob:
   enabled: false

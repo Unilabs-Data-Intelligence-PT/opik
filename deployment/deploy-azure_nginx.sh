@@ -1131,6 +1131,14 @@ docker build --platform linux/amd64 \
 docker push $ACR_LOGIN_SERVER/opik-frontend:$OPIK_VERSION
 print_success "🐳 Built and pushed opik-frontend:$OPIK_VERSION"
 
+# Build python-test-runner image
+print_info "Building opik-test-runner image for linux/amd64"
+docker build --platform linux/amd64 \
+    -t $ACR_LOGIN_SERVER/opik-test-runner:$OPIK_VERSION \
+    ./apps/opik-test-runner
+docker push $ACR_LOGIN_SERVER/opik-test-runner:$OPIK_VERSION
+print_success "🐳 Built and pushed opik-test-runner:$OPIK_VERSION"
+
 # Build sandbox executor image
 print_info "Building opik-sandbox-executor-python image for linux/amd64"
 docker build --platform linux/amd64 \
@@ -2009,6 +2017,70 @@ print_success "🔐 OAuth2 authentication endpoints are now accessible"
 print_info "OAuth2 endpoints (/oauth2/*) will not require authentication"
 print_info "Main application endpoints (/*) will require OAuth2 authentication"
 
+# =============================================================================
+# PYTHON TEST RUNNER INGRESS CREATION (POST-DEPLOYMENT)
+# =============================================================================
+
+print_step "🧪 Creating ingress for Python Test Runner service"
+print_info "Creating dedicated ingress for /api/testrunner/* paths"
+
+# Check if python-test-runner ingress already exists (idempotent behavior for re-runs)
+if kubectl get ingress opik-test-runner -n $NAMESPACE &>/dev/null; then
+    print_info "Python test-runner ingress 'opik-test-runner' already exists - updating configuration"
+else
+    print_info "Creating new Python test-runner ingress for /api/testrunner/* endpoints"
+fi
+
+# Create or update the python-test-runner ingress
+cat << EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opik-test-runner
+  namespace: $NAMESPACE
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/auth-url: "https://$OPIK_HOST/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://$OPIK_HOST/oauth2/start?rd=\$escaped_request_uri"
+    nginx.ingress.kubernetes.io/auth-response-headers: "x-auth-request-user,x-auth-request-email,x-auth-request-access-token"
+    nginx.ingress.kubernetes.io/rewrite-target: "/\$1"
+    cert-manager.io/cluster-issuer: "$SSL_ISSUER"
+    cert-manager.io/acme-challenge-type: "http01"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: $OPIK_HOST
+    http:
+      paths:
+      - path: /api/testrunner/(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: opik-python-test-runner
+            port:
+              number: 8001
+  tls:
+  - hosts:
+    - $OPIK_HOST
+    secretName: opik-tls-secret
+EOF
+
+# Wait a moment for the ingress to be processed
+sleep 5
+
+# Verify the python-test-runner ingress was created/updated successfully
+if kubectl get ingress opik-test-runner -n $NAMESPACE &>/dev/null; then
+    print_success "✅ Python test-runner ingress configured successfully"
+    kubectl get ingress opik-test-runner -n $NAMESPACE -o wide
+else
+    print_error "❌ Failed to configure python-test-runner ingress"
+fi
+
+print_success "🧪 Python Test Runner endpoints are now accessible"
+print_info "Test runner endpoints (/api/testrunner/*) are protected by OAuth2 authentication"
+print_info "Requests to /api/testrunner/* will be rewritten to /* and forwarded to opik-python-test-runner:8001"
+
 # Provide comprehensive deployment status
 provide_deployment_status_summary
 
@@ -2468,6 +2540,7 @@ print_section "🔗 Available Endpoints"
 print_key_value "Frontend" "/"
 print_key_value "Backend API" "/v1/private/*"
 print_key_value "Python Backend" "/v1/private/evaluators/*"
+print_key_value "Python Test Runner" "/api/testrunner/*"
 print_key_value "Health Check" "/health-check"
 
 print_section "⚡ Useful Commands"
@@ -2479,10 +2552,12 @@ print_info "View application logs:"
 print_info "  kubectl logs -n $NAMESPACE deployment/opik-backend"
 print_info "  kubectl logs -n $NAMESPACE deployment/opik-frontend"
 print_info "  kubectl logs -n $NAMESPACE deployment/opik-python-backend"
+print_info "  kubectl logs -n $NAMESPACE deployment/opik-python-test-runner"
 print_info "  kubectl logs -n $NAMESPACE deployment/oauth2-proxy"
 print_info ""
 print_info "Port forward (bypass authentication):"
 print_info "  kubectl port-forward -n $NAMESPACE svc/opik-frontend 5173:5173"
+print_info "  kubectl port-forward -n $NAMESPACE svc/opik-python-test-runner 8001:8001"
 print_info ""
 print_info "Manage team access:"
 if [ -n "${OPIK_ACCESS_GROUP_ID:-}" ]; then
@@ -2721,3 +2796,30 @@ print_success "   → SSL certificate will be issued automatically"
 print_info "   → Both access methods require authentication"
 
 print_success "🎉 Deployment completed successfully!"
+
+# =============================================================================
+# IMPORTANT POST-DEPLOYMENT TROUBLESHOOTING
+# =============================================================================
+
+print_section "⚠️ IMPORTANT: Common Post-Deployment Issues"
+print_warning "🔧 If you experience 500 errors or database connection issues:"
+print_info ""
+print_info "SYMPTOM: API endpoints returning 500 errors (projects, experiments, etc.)"
+print_info "CAUSE: Database migrations may have failed silently during initial deployment"
+print_info "SOLUTION: Restart the backend deployment to re-run migrations properly"
+print_info ""
+print_success "✅ QUICK FIX COMMAND:"
+print_info "  kubectl rollout restart deployment/opik-backend -n $NAMESPACE"
+print_info ""
+print_info "Wait 2-3 minutes for backend to restart, then test the application."
+print_info "This will properly run both MySQL and ClickHouse migrations."
+print_info ""
+print_warning "💡 Why this happens:"
+print_info "- MySQL/ClickHouse may not be fully ready when migrations first run"
+print_info "- Migration script reports success even when database connections fail"
+print_info "- Backend startup fails due to incomplete database schemas"
+print_info "- Restarting allows migrations to run against properly initialized databases"
+print_info ""
+print_info "📊 Monitor the restart:"
+print_info "  kubectl get pods -n $NAMESPACE | grep backend"
+print_info "  kubectl logs -n $NAMESPACE deployment/opik-backend --tail=50"

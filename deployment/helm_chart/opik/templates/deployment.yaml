@@ -68,6 +68,13 @@ spec:
           securityContext:
             {{- toYaml $value.securityContext | nindent 12 }}
           command: ["./run_db_migrations.sh"]
+          {{- with $value.env }}
+          env:
+            {{- range $envKey, $envValue := . }}
+            - name: {{ $envKey }}
+              value: {{ $envValue | quote }}
+            {{- end }}
+          {{- end }}
           {{- with $value.envFrom }}
           envFrom:
             {{- toYaml . | nindent 10 }}
@@ -125,6 +132,13 @@ spec:
           {{- with $value.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $value.env }}
+          env:
+            {{- range $envKey, $envValue := . }}
+            - name: {{ $envKey }}
+              value: {{ $envValue | quote }}
+            {{- end }}
           {{- end }}
           {{- with $value.envFrom }}
           envFrom:
