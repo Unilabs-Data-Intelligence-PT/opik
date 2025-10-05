@@ -28,6 +28,17 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+# Main ingress configuration
+ingress:
+  enabled: false
+  ingressClassName: ""
+  annotations: {}
+  hosts: []
+  tls:
+    enabled: false
+    hosts: []
+    secretName: ""
+
 component:
   backend:
     enabled: true
@@ -284,6 +295,10 @@ component:
     serviceAccount:
       create: true
       name: opik-python-test-runner
+    metrics:
+      enabled: false
+    backendConfigMap:
+      enabled: false
     image:
       repository: opik-test-runner
       pullPolicy: IfNotPresent
