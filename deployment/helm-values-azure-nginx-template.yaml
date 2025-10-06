@@ -208,7 +208,7 @@ component:
       STATE_DB_USER: "opik"
       STATE_DB_PASS: "opik"
       REDIS_URL: "redis://:wFSuJX9nDBdCa25sKZG7bh@opik-redis-master:6379/"
-      OPIK_URL_OVERRIDE: "https://$OPIK_HOST/api"
+      OPIK_URL_OVERRIDE: "http://opik-frontend:5173/api"
     ports:
       - name: http
         containerPort: 8001
