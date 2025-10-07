@@ -382,6 +382,7 @@ if [ -f ".env.azure-nginx" ]; then
         "ACR_NAME"
         "NAMESPACE"
         "OPIK_VERSION"
+        "OPIK_APP_NAME"
         "PUBLIC_IP_NAME"
         "VNET_NAME"
         "AKS_SUBNET_NAME"
@@ -430,6 +431,7 @@ print_key_value "Container Registry" "$ACR_NAME"
 print_key_value "AKS Cluster" "$AKS_CLUSTER_NAME"
 print_key_value "Azure Location" "$LOCATION"
 print_key_value "Images Version" "$OPIK_VERSION"
+print_key_value "App Registration Name" "$OPIK_APP_NAME"
 print_key_value "Kubernetes Namespace" "$NAMESPACE"
 
 # Check for potential conflicts from previous runs
@@ -730,27 +732,21 @@ else
 fi
 
 # Create App Registration for Opik authentication
-# Preserve OPIK_APP_NAME from .env.azure-nginx if set, otherwise use default pattern
-ORIGINAL_OPIK_APP_NAME="${OPIK_APP_NAME:-}"
-OPIK_APP_NAME="${OPIK_APP_NAME:-opik-frontend-auth-${RESOURCE_GROUP}}"
 print_step "Creating App Registration for Opik authentication"
+
+# Require OPIK_APP_NAME to be explicitly set in .env.azure-nginx
+if [ -z "${OPIK_APP_NAME:-}" ]; then
+    print_error "OPIK_APP_NAME is not set in .env.azure-nginx"
+    print_error "Please add OPIK_APP_NAME to your .env.azure-nginx file"
+    print_error "Example: OPIK_APP_NAME=\"opik-auth\""
+    exit 1
+fi
+
 print_info "App Registration Name: $OPIK_APP_NAME"
 
 # Check if app registration already exists
 print_info "Searching for existing App Registration with name: $OPIK_APP_NAME"
 APP_ID=$(az ad app list --display-name "$OPIK_APP_NAME" --query "[0].appId" -o tsv)
-
-# If not found with full name, try searching for the base name from .env.azure-nginx
-if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-    if [ -n "$ORIGINAL_OPIK_APP_NAME" ] && [ "$ORIGINAL_OPIK_APP_NAME" != "$OPIK_APP_NAME" ]; then
-        print_info "Trying alternative search with base name from .env.azure-nginx: $ORIGINAL_OPIK_APP_NAME"
-        APP_ID=$(az ad app list --display-name "$ORIGINAL_OPIK_APP_NAME" --query "[0].appId" -o tsv)
-        if [ -n "$APP_ID" ] && [ "$APP_ID" != "null" ]; then
-            print_info "Found existing app registration with base name: $ORIGINAL_OPIK_APP_NAME"
-            OPIK_APP_NAME="$ORIGINAL_OPIK_APP_NAME"
-        fi
-    fi
-fi
 
 print_info "Search result for APP_ID: '$APP_ID'"
 
@@ -2492,6 +2488,7 @@ case "${SCENARIO:-FRESH_INSTALL}" in
         print_info "Successfully upgraded to version: $OPIK_VERSION"
         print_success "All existing data preserved during upgrade"
         print_info "Schema migrations applied automatically"
+        print_info "No manual intervention required - data migration is automatic"
         ;;
 esac
 
