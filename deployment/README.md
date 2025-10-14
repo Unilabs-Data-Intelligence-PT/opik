@@ -4,7 +4,16 @@ This will provide an overview
 of how this Opik repository is being deployed
 to Azure Kubernetes Service (AKS) with external access through NGINX Ingress Controller.
 
-We recommend you read all the sections
+We recommen            subgraph OpikNamespace[📁 opik namespace]
+            Frontend
+            Backend
+            PythonBackend
+            SandboxExecutor[🔒 Sandbox Executor]
+            PythonTestRunner
+            OAuth2
+            InternalProxy
+            
+            subgraph SSLManagement[🔒 SSL Management]d all the sections
 because some assumptions were made based on the source code (especially for the [NGINX Ingress Routing Configuration](#nginx-ingress-routing-configuration) section).
 
 
@@ -193,11 +202,14 @@ on our DNS provider.
 graph TB
     Internet[🌐 Internet] --> NGINXIngress[🔀 NGINX Ingress Controller<br/>LoadBalancer + SSL Termination]
     
-    NGINXIngress --> |"/ (Root Path)"| OAuth2[🔐 OAuth2 Proxy<br/>Azure Entra ID Auth]
-    NGINXIngress --> |"/v1/private/evaluators/*"| PythonBackend[🐍 Python Backend<br/>Evaluator Service<br/>Port: 8000]
-    NGINXIngress --> |"/v1/* (Fallback)"| Backend[⚙️ Java Backend<br/>Main API<br/>Port: 8080]
+    NGINXIngress --> |"Authenticated Requests"| OAuth2[🔐 OAuth2 Proxy<br/>Azure Entra ID Auth]
+    NGINXIngress --> |"OAuth2 & ACME Bypass"| InternalProxy[🔄 Internal NGINX Proxy<br/>Service Router<br/>Port: 80]
     
-    OAuth2 --> Frontend[🌐 Frontend Service<br/>React App<br/>Port: 5173]
+    OAuth2 --> |"After Authentication"| InternalProxy
+    InternalProxy --> |"/v1/private/evaluators/*"| PythonBackend[🐍 Python Backend<br/>Evaluator Service<br/>Port: 8000]
+    InternalProxy --> |"/v1/* (API Fallback)"| Backend[⚙️ Java Backend<br/>Main API<br/>Port: 8080]
+    InternalProxy --> |"/api/testrunner/*"| PythonTestRunner[🧪 Python Test Runner<br/>Port: 8001<br/>Internal Access Only]
+    InternalProxy --> |"/ (Frontend Fallback)"| Frontend[🌐 Frontend Service<br/>React App<br/>Port: 5173]
 
     subgraph DeploymentFlow[🚀 NGINX Deployment Process]
         NGINXScript[📋 deploy-azure_nginx.sh]
@@ -271,7 +283,7 @@ graph TB
 
     class Frontend frontend
     class Backend,PythonBackend,SandboxExecutor backend
-    class PythonTestRunner internal
+    class PythonTestRunner,InternalProxy internal
     class MySQL,ClickHouse,Redis,MinIO,ZooKeeper database
     class Network,AKSSubnet network
     class DeploymentFlow,NGINXScript,ACR,AzureInfra,NGINXHelmChart,NGINXController,NGINXIngress,NGINXPods deployment
@@ -280,28 +292,56 @@ graph TB
     class OAuth2 auth
 ```
 
-## 🛣️ NGINX Ingress Routing Configuration
+## 🛣️ NGINX Ingress Architecture and Routing Configuration
 
-NGINX uses simple path-based routing with the following priority order:
+Opik uses a **single NGINX Ingress** with an internal NGINX proxy (`opik-nginx-proxy`) that handles all service routing. This simplified architecture provides better performance and easier management.
 
-| Route Pattern               | Target Service     | Purpose                                  |
-| --------------------------- | ------------------ | ---------------------------------------- |
-| `/v1/private/evaluators/*`  | **Python Backend** | Code evaluation endpoints (port 8000)   |
-| `/v1/*`                     | **Java Backend**   | All other API endpoints (port 8080)     |
-| `/health-check`             | **Java Backend**   | Health monitoring                        |
-| `/` (everything else)       | **Frontend**       | React app + static assets (port 5173)   |
+### Ingress Architecture
 
-> [!NOTE]
-> **Python Test Runner Service**: The `opik-python-test-runner` service runs on port 8001 but is **internal-only** (no external ingress route). It handles package management and code execution for the Python Backend service through internal cluster communication.
+```
+Internet → Single NGINX Ingress (opik-main) → OAuth2 Proxy → Internal NGINX Proxy (opik-nginx-proxy) → Services
+```
+
+| Component              | Purpose                                  | Authentication Required |
+| ---------------------- | ---------------------------------------- | ---------------------- |
+| **NGINX Ingress**      | Single entry point with SSL termination | OAuth2 (except bypass paths) |
+| **OAuth2 Proxy**       | Azure AD authentication                  | None (handles auth)    |
+| **Internal Proxy**     | Service routing and load balancing      | None (internal only)   |
+
+### OAuth2 Authentication Bypass
+
+The single ingress uses a server-snippet to bypass OAuth2 authentication for specific paths:
+
+- `/oauth2/*` - OAuth2 Proxy authentication endpoints  
+- `/.well-known/acme-challenge/*` - Let's Encrypt certificate challenges
+
+All other paths require OAuth2 authentication via Azure AD.
+
+### Internal Service Routing
+
+The internal NGINX proxy (`opik-nginx-proxy`) routes requests to services:
+
+| Route Pattern               | Target Service           | Purpose                                  |
+| --------------------------- | ------------------------ | ---------------------------------------- |
+| `/api/testrunner/*`         | **Python Test Runner**  | Code execution endpoints (port 8001)    |
+| `/v1/private/evaluators/*`  | **Python Backend**       | Code evaluation endpoints (port 8000)   |
+| `/v1/*`                     | **Java Backend**         | All other API endpoints (port 8080)     |
+| `/health-check`             | **Java Backend**         | Health monitoring                        |
+| `/` (everything else)       | **Frontend**             | React app + static assets (port 5173)   |
 
 ### How It Works
 
-1. **NGINX does simple path matching** - it doesn't know about specific API endpoints
-2. **Frontend handles its own routing** - React Router manages UI navigation  
-3. **Frontend makes API calls** - these go back through NGINX to backends
+1. **Single ingress receives all traffic** - simplified SSL and authentication management
+2. **OAuth2 authentication** - protects all application endpoints except authentication flows
+3. **Internal proxy routes requests** - based on path patterns to appropriate services
 4. **Most specific routes win** - `/v1/private/evaluators` takes precedence over `/v1`
+5. **Frontend handles navigation** - React Router manages client-side routing
 
-The Frontend app makes API calls to `/v1/private/*` endpoints, which NGINX routes to the appropriate backend service based on the path prefix.
+This architecture provides:
+- **Simplified SSL management** - single certificate for all services
+- **Centralized authentication** - OAuth2 protection for all application endpoints  
+- **Better performance** - reduced ingress overhead
+- **Easier troubleshooting** - single ingress to monitor and debug
 
 ### Network Configuration
 

@@ -1049,21 +1049,14 @@ helm repo update
 # Create namespace for NGINX Ingress
 kubectl create namespace nginx-ingress --dry-run=client -o yaml | kubectl apply -f -
 
-# Install or upgrade NGINX Ingress Controller with LoadBalancer service using our pre-created public IP
+# Prepare NGINX Ingress values with environment variable substitution
+print_info "Preparing NGINX Ingress values with environment variables"
+envsubst < nginx-ingress-values.yaml > nginx-ingress-values-resolved.yaml
+
+# Install or upgrade NGINX Ingress Controller using values file
 helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
     --namespace nginx-ingress \
-    --set controller.service.type=LoadBalancer \
-    --set controller.service.loadBalancerIP=$PUBLIC_IP_ADDRESS \
-    --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-resource-group"=$RESOURCE_GROUP \
-    --set controller.replicaCount=2 \
-    --set controller.nodeSelector."kubernetes\.io/os"=linux \
-    --set defaultBackend.nodeSelector."kubernetes\.io/os"=linux \
-    --set controller.admissionWebhooks.patch.nodeSelector."kubernetes\.io/os"=linux \
-    --set controller.service.externalTrafficPolicy=Local \
-    --set controller.config.proxy-buffer-size="16k" \
-    --set controller.config.proxy-buffers-number="8" \
-    --set controller.config.proxy-busy-buffers-size="64k" \
-    --set controller.config.large-client-header-buffers="4 32k"
+    --values nginx-ingress-values-resolved.yaml
 
 print_success "NGINX Ingress Controller installed/upgraded"
 
