@@ -1,0 +1,34 @@
+# Python Test Runner Ingress for handling test execution API
+# This ingress handles /api/testrunner/* endpoints with OAuth2 authentication
+# Environment variables are substituted by the deployment script
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opik-test-runner
+  namespace: ${NAMESPACE}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/auth-url: "https://${OPIK_HOST}/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://${OPIK_HOST}/oauth2/start?rd=$escaped_request_uri"
+    nginx.ingress.kubernetes.io/auth-response-headers: "x-auth-request-user,x-auth-request-email,x-auth-request-access-token"
+    nginx.ingress.kubernetes.io/rewrite-target: "/$$1"
+    cert-manager.io/cluster-issuer: "${SSL_ISSUER}"
+    cert-manager.io/acme-challenge-type: "http01"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ${OPIK_HOST}
+    http:
+      paths:
+      - path: /api/testrunner/(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: opik-python-test-runner
+            port:
+              number: 8001
+  tls:
+  - hosts:
+    - ${OPIK_HOST}
+    secretName: opik-tls-secret

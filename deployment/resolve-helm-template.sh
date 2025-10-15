@@ -224,13 +224,22 @@ print_info "Attempting to retrieve authentication secrets from Kubernetes..."
 # Check if kubectl is available and cluster is accessible
 if command -v kubectl &> /dev/null && kubectl cluster-info &> /dev/null; then
     print_info "Kubernetes cluster is accessible, attempting to retrieve secrets"
-    
+
     # Try to get OAuth2 proxy secrets
     if kubectl get secret opik-oauth2-proxy -n "$NAMESPACE" &> /dev/null; then
         CLIENT_SECRET=$(kubectl get secret opik-oauth2-proxy -n "$NAMESPACE" -o jsonpath='{.data.client-secret}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
         OAUTH2_COOKIE_SECRET=$(kubectl get secret opik-oauth2-proxy -n "$NAMESPACE" -o jsonpath='{.data.cookie-secret}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
         
-        if [ -n "$CLIENT_SECRET" ] && [ -n "$OAUTH2_COOKIE_SECRET" ]; then
+        # Check if secrets contain placeholder values (indicates they weren't properly resolved during deployment)
+        # Also check if cookie secret is wrong length (OAuth2 proxy needs exactly 16, 24, or 32 bytes)
+        if [[ "$CLIENT_SECRET" == *"CLIENT_SECRET"* ]] || [[ "$OAUTH2_COOKIE_SECRET" == *"OAUTH2_COOKIE_SECRET"* ]] || [ ${#OAUTH2_COOKIE_SECRET} -ne 32 ]; then
+            print_warning "Kubernetes secret contains placeholder or invalid values, attempting to regenerate"
+            if [ ${#OAUTH2_COOKIE_SECRET} -ne 32 ]; then
+                print_warning "Cookie secret is ${#OAUTH2_COOKIE_SECRET} bytes, but OAuth2 proxy requires exactly 32 bytes"
+            fi
+            CLIENT_SECRET=""
+            OAUTH2_COOKIE_SECRET=""
+        elif [ -n "$CLIENT_SECRET" ] && [ -n "$OAUTH2_COOKIE_SECRET" ]; then
             print_success "Retrieved authentication secrets from Kubernetes"
             export CLIENT_SECRET
             export OAUTH2_COOKIE_SECRET
@@ -244,30 +253,49 @@ else
     print_info "Kubernetes cluster not accessible, will prompt for secrets"
 fi
 
-# If we don't have CLIENT_SECRET, prompt user or provide guidance
+# If we don't have CLIENT_SECRET, try to regenerate it from Azure
 if [ -z "${CLIENT_SECRET:-}" ]; then
     print_warning "CLIENT_SECRET not found in Kubernetes secrets"
-    print_info "You have several options:"
-    echo "  1. Run the full deploy-azure_nginx.sh script first to populate secrets"
-    echo "  2. Manually set CLIENT_SECRET environment variable"
-    echo "  3. Continue with placeholder (template will have placeholder values)"
-    echo ""
-    read -p "Do you want to continue with placeholder values? [y/N]: " -r
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Please run the deployment script first or set CLIENT_SECRET manually"
-        exit 1
-    fi
+    print_info "Attempting to regenerate client secret from Azure App Registration"
     
-    export CLIENT_SECRET="\${CLIENT_SECRET_PLACEHOLDER}"
-    print_warning "Using placeholder for CLIENT_SECRET"
+    if [ -n "$APP_ID" ] && [ "$APP_ID" != "null" ]; then
+        # Try to regenerate client secret
+        CLIENT_SECRET=$(az ad app credential reset --id "$APP_ID" --query "password" -o tsv 2>/dev/null || echo "")
+        
+        if [ -n "$CLIENT_SECRET" ] && [ "$CLIENT_SECRET" != "null" ]; then
+            export CLIENT_SECRET
+            print_success "Regenerated client secret from Azure App Registration"
+            print_warning "⚠️  New client secret generated - save this value securely!"
+        else
+            print_error "Failed to regenerate client secret from Azure"
+            print_info "You have several options:"
+            echo "  1. Run the full deploy-azure_nginx.sh script to setup authentication"
+            echo "  2. Manually set CLIENT_SECRET environment variable"
+            echo "  3. Continue with placeholder (template will have placeholder values)"
+            echo ""
+            read -p "Do you want to continue with placeholder values? [y/N]: " -r
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_info "Please run the deployment script first or set CLIENT_SECRET manually"
+                exit 1
+            fi
+            
+            export CLIENT_SECRET="\${CLIENT_SECRET_PLACEHOLDER}"
+            print_warning "Using placeholder for CLIENT_SECRET"
+        fi
+    else
+        print_error "APP_ID not available - cannot regenerate client secret"
+        export CLIENT_SECRET="\${CLIENT_SECRET_PLACEHOLDER}"
+        print_warning "Using placeholder for CLIENT_SECRET"
+    fi
 fi
 
 # Generate OAuth2 cookie secret if not available
 if [ -z "${OAUTH2_COOKIE_SECRET:-}" ]; then
     if command -v openssl &> /dev/null; then
-        OAUTH2_COOKIE_SECRET=$(openssl rand -base64 32 | tr -d '\n')
+        # Generate exactly 32 bytes for AES cipher (not base64 encoded)
+        OAUTH2_COOKIE_SECRET=$(openssl rand -hex 16)
         export OAUTH2_COOKIE_SECRET
-        print_info "Generated new OAuth2 cookie secret"
+        print_info "Generated new OAuth2 cookie secret (32 bytes)"
     else
         export OAUTH2_COOKIE_SECRET="\${OAUTH2_COOKIE_SECRET_PLACEHOLDER}"
         print_warning "Using placeholder for OAUTH2_COOKIE_SECRET (openssl not available)"
@@ -338,8 +366,9 @@ print_success "All template variables validated"
 
 print_step "🔄 Resolving template variables"
 
-# Create resolved template
-envsubst < helm-values-azure-nginx-template.yaml > "$OUTPUT_FILE"
+# Create resolved template - only substitute specific environment variables
+# This prevents envsubst from touching NGINX variables like $escaped_request_uri
+envsubst '$ACR_LOGIN_SERVER,$APP_ID,$CLIENT_SECRET,$NAMESPACE,$OAUTH2_COOKIE_SECRET,$OPIK_ACCESS_GROUP_ID,$OPIK_HOST,$OPIK_VERSION,$RESOURCE_GROUP,$SSL_ENABLED,$SSL_ISSUER,$TENANT_ID' < helm-values-azure-nginx-template.yaml > "$OUTPUT_FILE"
 
 # Verify the resolved template
 if [ ! -f "$OUTPUT_FILE" ]; then

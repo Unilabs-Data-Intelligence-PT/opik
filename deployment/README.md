@@ -12,6 +12,9 @@ We recommen            subgraph OpikNamespace[📁 opik namespace]
             PythonTestRunner
             OAuth2
             InternalProxy
+            MainIngress
+            OAuth2Ingress
+            TestRunnerIngress
             
             subgraph SSLManagement[🔒 SSL Management]d all the sections
 because some assumptions were made based on the source code (especially for the [NGINX Ingress Routing Configuration](#nginx-ingress-routing-configuration) section).
@@ -202,13 +205,16 @@ on our DNS provider.
 graph TB
     Internet[🌐 Internet] --> NGINXIngress[🔀 NGINX Ingress Controller<br/>LoadBalancer + SSL Termination]
     
-    NGINXIngress --> |"Authenticated Requests"| OAuth2[🔐 OAuth2 Proxy<br/>Azure Entra ID Auth]
-    NGINXIngress --> |"OAuth2 & ACME Bypass"| InternalProxy[🔄 Internal NGINX Proxy<br/>Service Router<br/>Port: 80]
+    NGINXIngress --> |"Main Ingress (/)"| MainIngress[📋 Main Ingress<br/>OAuth2 Protected]
+    NGINXIngress --> |"OAuth2 Ingress (/oauth2)"| OAuth2Ingress[🔐 OAuth2 Ingress<br/>No Auth Required]
+    NGINXIngress --> |"Test Runner Ingress (/api/testrunner)"| TestRunnerIngress[🧪 Test Runner Ingress<br/>OAuth2 Protected]
     
-    OAuth2 --> |"After Authentication"| InternalProxy
+    MainIngress --> |"After OAuth2 Auth"| InternalProxy[🔄 Internal NGINX Proxy<br/>Service Router<br/>Port: 80]
+    OAuth2Ingress --> |"Direct Access"| OAuth2[🔐 OAuth2 Proxy<br/>Azure Entra ID Auth]
+    TestRunnerIngress --> |"After OAuth2 Auth"| PythonTestRunner[🧪 Python Test Runner<br/>Port: 8001]
+    
     InternalProxy --> |"/v1/private/evaluators/*"| PythonBackend[🐍 Python Backend<br/>Evaluator Service<br/>Port: 8000]
     InternalProxy --> |"/v1/* (API Fallback)"| Backend[⚙️ Java Backend<br/>Main API<br/>Port: 8080]
-    InternalProxy --> |"/api/testrunner/*"| PythonTestRunner[🧪 Python Test Runner<br/>Port: 8001<br/>Internal Access Only]
     InternalProxy --> |"/ (Frontend Fallback)"| Frontend[🌐 Frontend Service<br/>React App<br/>Port: 5173]
 
     subgraph DeploymentFlow[🚀 NGINX Deployment Process]
@@ -284,6 +290,7 @@ graph TB
     class Frontend frontend
     class Backend,PythonBackend,SandboxExecutor backend
     class PythonTestRunner,InternalProxy internal
+    class MainIngress,OAuth2Ingress,TestRunnerIngress deployment
     class MySQL,ClickHouse,Redis,MinIO,ZooKeeper database
     class Network,AKSSubnet network
     class DeploymentFlow,NGINXScript,ACR,AzureInfra,NGINXHelmChart,NGINXController,NGINXIngress,NGINXPods deployment
@@ -299,14 +306,15 @@ Opik uses a **single NGINX Ingress** with an internal NGINX proxy (`opik-nginx-p
 ### Ingress Architecture
 
 ```
-Internet → Single NGINX Ingress (opik-main) → OAuth2 Proxy → Internal NGINX Proxy (opik-nginx-proxy) → Services
+Internet → NGINX Ingress Controller → Three Separate Ingresses → Services
 ```
 
-| Component              | Purpose                                  | Authentication Required |
-| ---------------------- | ---------------------------------------- | ---------------------- |
-| **NGINX Ingress**      | Single entry point with SSL termination | OAuth2 (except bypass paths) |
-| **OAuth2 Proxy**       | Azure AD authentication                  | None (handles auth)    |
-| **Internal Proxy**     | Service routing and load balancing      | None (internal only)   |
+| Component                    | Purpose                                  | Authentication Required |
+| ---------------------------- | ---------------------------------------- | ---------------------- |
+| **NGINX Ingress Controller** | Single entry point with SSL termination | Route-based            |
+| **Main Ingress**             | Application routes (/, /v1/*)           | OAuth2 required        |
+| **OAuth2 Ingress**           | OAuth2 authentication endpoints         | None (handles auth)    |
+| **Test Runner Ingress**      | Python test runner API                  | OAuth2 required        |
 
 ### OAuth2 Authentication Bypass
 

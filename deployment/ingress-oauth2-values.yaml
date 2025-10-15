@@ -1,0 +1,30 @@
+# OAuth2 Ingress for handling OAuth2 authentication endpoints
+# This ingress handles /oauth2/* endpoints without authentication
+# Environment variables are substituted by the deployment script
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opik-oauth2
+  namespace: ${NAMESPACE}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "${SSL_ISSUER}"
+    cert-manager.io/acme-challenge-type: "http01"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ${OPIK_HOST}
+      secretName: opik-tls-secret
+  rules:
+    - host: ${OPIK_HOST}
+      http:
+        paths:
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: opik-oauth2-proxy
+                port:
+                  number: 4180

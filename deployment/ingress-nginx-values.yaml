@@ -18,35 +18,13 @@ controller:
   nodeSelector:
     kubernetes.io/os: linux
   
-  # CRITICAL: Enable snippet annotations for OAuth2 server-snippet support
-  # This allows the ingress to use nginx.ingress.kubernetes.io/server-snippet
-  # which is required for our OAuth2 proxy configuration
-  allowSnippetAnnotations: true
-  
-  # CRITICAL: Disable annotation validation that blocks server-snippets
-  # This prevents the admission webhook from rejecting server-snippet annotations
-  enableAnnotationValidations: false
-  
-  # CRITICAL: Enable snippet annotations for OAuth2 server-snippet support
-  # This allows the ingress to use nginx.ingress.kubernetes.io/server-snippet
-  # which is required for our OAuth2 proxy configuration
-  allowSnippetAnnotations: true
-  
-  # Disable annotation validation to allow server-snippet annotations
-  # This is required for OAuth2 proxy bypass configuration
+  # Admission webhooks configuration
   admissionWebhooks:
     enabled: true
     patch:
       enabled: true
       nodeSelector:
         kubernetes.io/os: linux
-    # Disable validation of risky annotations (required for server-snippet)
-    validateAdmissionWebhook:
-      enabled: false
-  
-  # CRITICAL: Disable annotation validation to allow server-snippet
-  # This is required for newer NGINX Ingress versions that have stricter security
-  enableAnnotationValidations: false
   
   # Buffer configuration for large Azure AD OAuth2 tokens
   # Azure AD tokens can be 50KB+ for users with many group memberships
@@ -63,17 +41,6 @@ controller:
     client-header-timeout: "60s"          # Client header timeout
     client-body-timeout: "60s"            # Client body timeout
     proxy-read-timeout: "60s"             # Proxy read timeout
-    
-    # CRITICAL: Allow server-snippet annotations
-    # Set annotation risk level to allow server-snippet usage
-    annotation-value-word-blocklist: ""   # Disable word blocklist
-    enable-annotation-validation: "false" # Disable annotation validation
-  
-  # CRITICAL: Configure controller arguments for snippet support
-  # This allows server-snippet annotations which are needed for OAuth2 bypass
-  extraArgs:
-    annotation-value-word-blocklist: ""
-    enable-annotation-validation: "false"
 
 # Default backend configuration
 defaultBackend:

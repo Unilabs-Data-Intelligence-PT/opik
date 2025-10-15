@@ -657,6 +657,9 @@ if [ -z "$PUBLIC_IP_ADDRESS" ] || [ "$PUBLIC_IP_ADDRESS" = "null" ]; then
     exit 1
 fi
 
+# Export immediately for use in environment variable substitution
+export PUBLIC_IP_ADDRESS
+
 print_success "Public IP address: $PUBLIC_IP_ADDRESS"
 
 # =============================================================================
@@ -1051,7 +1054,7 @@ kubectl create namespace nginx-ingress --dry-run=client -o yaml | kubectl apply 
 
 # Prepare NGINX Ingress values with environment variable substitution
 print_info "Preparing NGINX Ingress values with environment variables"
-envsubst < nginx-ingress-values.yaml > nginx-ingress-values-resolved.yaml
+envsubst '$PUBLIC_IP_ADDRESS,$RESOURCE_GROUP' < ingress-nginx-values.yaml > nginx-ingress-values-resolved.yaml
 
 # Install or upgrade NGINX Ingress Controller using values file
 helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
@@ -1518,7 +1521,6 @@ export ACR_LOGIN_SERVER
 export OPIK_VERSION
 export TOGGLE_GUARDRAILS_ENABLED
 export DOMAIN_NAME
-export PUBLIC_IP_ADDRESS
 export NAMESPACE
 export SSL_ENABLED
 export SSL_ISSUER
@@ -1563,7 +1565,7 @@ fi
 print_success "Authentication variables validated successfully"
 
 # Create a temporary values file with substituted variables
-envsubst < helm-values-azure-nginx-template.yaml > helm-values-azure-resolved.yaml
+envsubst '$ACR_LOGIN_SERVER,$APP_ID,$CLIENT_SECRET,$NAMESPACE,$OAUTH2_COOKIE_SECRET,$OPIK_ACCESS_GROUP_ID,$OPIK_HOST,$OPIK_VERSION,$RESOURCE_GROUP,$SSL_ENABLED,$SSL_ISSUER,$TENANT_ID' < helm-values-azure-nginx-template.yaml > helm-values-azure-resolved.yaml
 
 # SSL and OAuth2 configuration is handled via OPIK_HOST variable in the template
 if [ -n "${DOMAIN_NAME:-}" ]; then
@@ -1960,36 +1962,9 @@ else
     print_info "Creating new OAuth2 ingress for /oauth2 endpoints"
 fi
 
-# Create or update the OAuth2 ingress using the working configuration with variable substitution
-cat << EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: opik-oauth2
-  namespace: $NAMESPACE
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    cert-manager.io/cluster-issuer: "$SSL_ISSUER"
-    cert-manager.io/acme-challenge-type: "http01"
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - $OPIK_HOST
-      secretName: opik-tls-secret
-  rules:
-    - host: $OPIK_HOST
-      http:
-        paths:
-          - path: /oauth2
-            pathType: Prefix
-            backend:
-              service:
-                name: opik-oauth2-proxy
-                port:
-                  number: 4180
-EOF
+# Create or update the OAuth2 ingress using template file
+print_info "Applying OAuth2 ingress configuration from template"
+envsubst '$NAMESPACE,$OPIK_HOST,$SSL_ISSUER' < ingress-oauth2-values.yaml | kubectl apply -f -
 
 # Wait a moment for the ingress to be processed
 sleep 5
@@ -2020,40 +1995,9 @@ else
     print_info "Creating new Python test-runner ingress for /api/testrunner/* endpoints"
 fi
 
-# Create or update the python-test-runner ingress
-cat << EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: opik-test-runner
-  namespace: $NAMESPACE
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/auth-url: "https://$OPIK_HOST/oauth2/auth"
-    nginx.ingress.kubernetes.io/auth-signin: "https://$OPIK_HOST/oauth2/start?rd=\$escaped_request_uri"
-    nginx.ingress.kubernetes.io/auth-response-headers: "x-auth-request-user,x-auth-request-email,x-auth-request-access-token"
-    nginx.ingress.kubernetes.io/rewrite-target: "/\$1"
-    cert-manager.io/cluster-issuer: "$SSL_ISSUER"
-    cert-manager.io/acme-challenge-type: "http01"
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: $OPIK_HOST
-    http:
-      paths:
-      - path: /api/testrunner/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: opik-python-test-runner
-            port:
-              number: 8001
-  tls:
-  - hosts:
-    - $OPIK_HOST
-    secretName: opik-tls-secret
-EOF
+# Create or update the python-test-runner ingress using template file
+print_info "Applying Python test runner ingress configuration from template"
+envsubst '$NAMESPACE,$OPIK_HOST,$SSL_ISSUER' < ingress-test-runner-values.yaml | kubectl apply -f -
 
 # Wait a moment for the ingress to be processed
 sleep 5

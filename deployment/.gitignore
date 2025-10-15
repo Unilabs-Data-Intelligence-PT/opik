@@ -1,8 +1,5 @@
 # Temporary files generated during deployment
-helm-values-azure-resolved.yaml
-
-# Don't commit resolved template files (if accidentally created)
-helm-values-azure.yaml
+*-resolved.yaml
 
 # Environment files that might contain secrets
 .env.local
