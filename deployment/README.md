@@ -4,26 +4,13 @@ This will provide an overview
 of how this Opik repository is being deployed
 to Azure Kubernetes Service (AKS) with external access through NGINX Ingress Controller.
 
-We recommen            subgraph OpikNamespace[📁 opik namespace]
-            Frontend
-            Backend
-            PythonBackend
-            SandboxExecutor[🔒 Sandbox Executor]
-            PythonTestRunner
-            OAuth2
-            InternalProxy
-            MainIngress
-            OAuth2Ingress
-            TestRunnerIngress
-            
-            subgraph SSLManagement[🔒 SSL Management]d all the sections
-because some assumptions were made based on the source code (especially for the [NGINX Ingress Routing Configuration](#nginx-ingress-routing-configuration) section).
+Some assumptions were made based on the source code (especially for the [NGINX Ingress Routing Configuration](#nginx-ingress-routing-configuration) section).
 
 
 ## 📋 Prerequisites
 
 > [!IMPORTANT] 
-> To run any script,
+> To run any deploy script ([`deploy-azure_nginx.sh`](./deploy-azure_nginx.sh)),
 > you need to use the **DevScope** Azure account. Run `az login` and select the DevScope account before deployment.
 
 ### Install Required Tools
@@ -56,6 +43,7 @@ because it was more cost-effective.
 | `deploy-azure_nginx.sh` | Main deployment script with cert-manager and OAuth2 proxy |
 | `.env.azure-nginx` | Configuration file for deployment (domain, SSL, authentication) |
 | `helm-values-azure-nginx-template.yaml` | Helm values template optimized for NGINX Ingress |
+| `resolve-helm-template.sh` | Script to resolve Helm template with environment variables (useful to resolve the template file with new values for quick configuration changes to the deployment Helm file) |
 
 
 ### Configure the Deployment

@@ -218,74 +218,25 @@ fi
 export APP_ID
 print_info "APP_ID: $APP_ID"
 
-# Try to get authentication variables from Kubernetes secrets (if available)
-print_info "Attempting to retrieve authentication secrets from Kubernetes..."
+# Set CLIENT_SECRET as placeholder (user will need to update manually)
+print_warning "Setting CLIENT_SECRET as placeholder - manual update required"
+export CLIENT_SECRET="\${CLIENT_SECRET_PLACEHOLDER}"
 
-# Check if kubectl is available and cluster is accessible
+# Get OAUTH2_COOKIE_SECRET from Kubernetes if available, otherwise generate new
+print_info "Checking for OAuth2 cookie secret..."
+OAUTH2_COOKIE_SECRET=""
 if command -v kubectl &> /dev/null && kubectl cluster-info &> /dev/null; then
-    print_info "Kubernetes cluster is accessible, attempting to retrieve secrets"
-
-    # Try to get OAuth2 proxy secrets
     if kubectl get secret opik-oauth2-proxy -n "$NAMESPACE" &> /dev/null; then
-        CLIENT_SECRET=$(kubectl get secret opik-oauth2-proxy -n "$NAMESPACE" -o jsonpath='{.data.client-secret}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
         OAUTH2_COOKIE_SECRET=$(kubectl get secret opik-oauth2-proxy -n "$NAMESPACE" -o jsonpath='{.data.cookie-secret}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
         
-        # Check if secrets contain placeholder values (indicates they weren't properly resolved during deployment)
-        # Also check if cookie secret is wrong length (OAuth2 proxy needs exactly 16, 24, or 32 bytes)
-        if [[ "$CLIENT_SECRET" == *"CLIENT_SECRET"* ]] || [[ "$OAUTH2_COOKIE_SECRET" == *"OAUTH2_COOKIE_SECRET"* ]] || [ ${#OAUTH2_COOKIE_SECRET} -ne 32 ]; then
-            print_warning "Kubernetes secret contains placeholder or invalid values, attempting to regenerate"
-            if [ ${#OAUTH2_COOKIE_SECRET} -ne 32 ]; then
-                print_warning "Cookie secret is ${#OAUTH2_COOKIE_SECRET} bytes, but OAuth2 proxy requires exactly 32 bytes"
-            fi
-            CLIENT_SECRET=""
-            OAUTH2_COOKIE_SECRET=""
-        elif [ -n "$CLIENT_SECRET" ] && [ -n "$OAUTH2_COOKIE_SECRET" ]; then
-            print_success "Retrieved authentication secrets from Kubernetes"
-            export CLIENT_SECRET
+        # Validate cookie secret length (OAuth2 proxy needs exactly 32 hex characters = 16 bytes)
+        if [ -n "$OAUTH2_COOKIE_SECRET" ] && [ ${#OAUTH2_COOKIE_SECRET} -eq 32 ] && [[ "$OAUTH2_COOKIE_SECRET" =~ ^[a-f0-9]+$ ]]; then
+            print_success "Retrieved OAuth2 cookie secret from Kubernetes"
             export OAUTH2_COOKIE_SECRET
         else
-            print_warning "Could not retrieve secrets from Kubernetes, they may be empty"
+            print_warning "Invalid OAuth2 cookie secret in Kubernetes (length: ${#OAUTH2_COOKIE_SECRET}), will generate new one"
+            OAUTH2_COOKIE_SECRET=""
         fi
-    else
-        print_warning "OAuth2 proxy secret not found in Kubernetes"
-    fi
-else
-    print_info "Kubernetes cluster not accessible, will prompt for secrets"
-fi
-
-# If we don't have CLIENT_SECRET, try to regenerate it from Azure
-if [ -z "${CLIENT_SECRET:-}" ]; then
-    print_warning "CLIENT_SECRET not found in Kubernetes secrets"
-    print_info "Attempting to regenerate client secret from Azure App Registration"
-    
-    if [ -n "$APP_ID" ] && [ "$APP_ID" != "null" ]; then
-        # Try to regenerate client secret
-        CLIENT_SECRET=$(az ad app credential reset --id "$APP_ID" --query "password" -o tsv 2>/dev/null || echo "")
-        
-        if [ -n "$CLIENT_SECRET" ] && [ "$CLIENT_SECRET" != "null" ]; then
-            export CLIENT_SECRET
-            print_success "Regenerated client secret from Azure App Registration"
-            print_warning "⚠️  New client secret generated - save this value securely!"
-        else
-            print_error "Failed to regenerate client secret from Azure"
-            print_info "You have several options:"
-            echo "  1. Run the full deploy-azure_nginx.sh script to setup authentication"
-            echo "  2. Manually set CLIENT_SECRET environment variable"
-            echo "  3. Continue with placeholder (template will have placeholder values)"
-            echo ""
-            read -p "Do you want to continue with placeholder values? [y/N]: " -r
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                print_info "Please run the deployment script first or set CLIENT_SECRET manually"
-                exit 1
-            fi
-            
-            export CLIENT_SECRET="\${CLIENT_SECRET_PLACEHOLDER}"
-            print_warning "Using placeholder for CLIENT_SECRET"
-        fi
-    else
-        print_error "APP_ID not available - cannot regenerate client secret"
-        export CLIENT_SECRET="\${CLIENT_SECRET_PLACEHOLDER}"
-        print_warning "Using placeholder for CLIENT_SECRET"
     fi
 fi
 
@@ -397,21 +348,22 @@ fi
 # =============================================================================
 
 print_header "Template Resolution Complete"
-
 print_success "✅ Resolved template created: $OUTPUT_FILE"
-print_info "📊 Template statistics:"
-echo "  - File size: $(du -h "$OUTPUT_FILE" | cut -f1)"
-echo "  - Line count: $(wc -l < "$OUTPUT_FILE")"
 
-if [[ "$CLIENT_SECRET" == *"PLACEHOLDER"* ]] || [[ "$OAUTH2_COOKIE_SECRET" == *"PLACEHOLDER"* ]] || [[ "$OPIK_ACCESS_GROUP_ID" == *"PLACEHOLDER"* ]]; then
-    print_warning "⚠️  Template contains placeholder values"
-    print_info "To get actual values:"
-    echo "  1. Run the full deploy-azure_nginx.sh script, or"
-    echo "  2. Manually replace placeholder values in $OUTPUT_FILE"
-else
-    print_success "🎉 Template is ready for deployment with:"
-    echo "  helm upgrade --install opik ./helm_chart/opik -n $NAMESPACE -f $OUTPUT_FILE"
-fi
+print_header "🔐 IMPORTANT: Update Client Secret"
 
+print_warning "📝 MANUAL ACTION REQUIRED:"
 echo ""
-print_info "You can now use this resolved template for Helm deployment or further customization"
+print_step "1. Get client secret from Azure Portal:"
+echo "   • Go to: Azure Portal → Azure Active Directory → App registrations"
+echo "   • Find: '$OPIK_APP_NAME' (App ID: $APP_ID)"
+echo "   • Navigate to: Certificates & secrets → Client secrets"
+echo "   • Create new secret or use existing one"
+echo ""
+print_step "2. Update the resolved template file:"
+echo "   • Open: $OUTPUT_FILE"
+echo "   • Find: clientSecret: \"\${CLIENT_SECRET_PLACEHOLDER}\""
+echo "   • Replace with: clientSecret: \"YOUR_ACTUAL_CLIENT_SECRET\""
+echo ""
+print_step "3. Deploy with Helm:"
+echo "   • Run: helm upgrade --install opik ./helm_chart/opik -n $NAMESPACE -f $OUTPUT_FILE"
