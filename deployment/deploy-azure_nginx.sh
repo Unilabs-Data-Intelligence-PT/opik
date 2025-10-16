@@ -754,7 +754,8 @@ APP_ID=$(az ad app list --display-name "$OPIK_APP_NAME" --query "[0].appId" -o t
 print_info "Search result for APP_ID: '$APP_ID'"
 
 if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-    print_info "No existing app registration found - creating new one"
+    print_warning "No existing app registration found - creating new one"
+
     # Determine redirect URL based on domain or public IP
     if [ -n "${DOMAIN_NAME:-}" ]; then
         REDIRECT_URL="https://$DOMAIN_NAME/oauth2/callback"
@@ -2470,44 +2471,6 @@ else
     print_info "💡 To enable HTTPS: Set DOMAIN_NAME in .env.azure-nginx and redeploy"
 fi
 
-print_section "🔗 Available Endpoints"
-print_key_value "Frontend" "/"
-print_key_value "Backend API" "/v1/private/*"
-print_key_value "Python Backend" "/v1/private/evaluators/*"
-print_key_value "Python Test Runner" "/api/testrunner/*"
-print_key_value "Health Check" "/health-check"
-
-print_section "⚡ Useful Commands"
-print_info "Check deployment status:"
-print_info "  kubectl get pods -n $NAMESPACE"
-print_info "  kubectl get ingress -n $NAMESPACE"
-print_info ""
-print_info "View application logs:"
-print_info "  kubectl logs -n $NAMESPACE deployment/opik-backend"
-print_info "  kubectl logs -n $NAMESPACE deployment/opik-frontend"
-print_info "  kubectl logs -n $NAMESPACE deployment/opik-python-backend"
-print_info "  kubectl logs -n $NAMESPACE deployment/opik-python-test-runner"
-print_info "  kubectl logs -n $NAMESPACE deployment/oauth2-proxy"
-print_info ""
-print_info "Port forward (bypass authentication):"
-print_info "  kubectl port-forward -n $NAMESPACE svc/opik-frontend 5173:5173"
-print_info "  kubectl port-forward -n $NAMESPACE svc/opik-python-test-runner 8001:8001"
-print_info ""
-print_info "Manage team access:"
-if [ -n "${OPIK_ACCESS_GROUP_ID:-}" ]; then
-    print_info "  # Add users to the Opik Users group:"
-    print_info "  az ad group member add --group '$OPIK_ACCESS_GROUP_NAME' --member-id <user-email-or-object-id>"
-    print_info "  # List current group members:"
-    print_info "  az ad group member list --group '$OPIK_ACCESS_GROUP_NAME'"
-    print_info "  # View group in Azure Portal:"
-    print_info "  https://portal.azure.com/#view/Microsoft_AAD_Groups/GroupDetailsMenuBlade/~/Overview/groupId/$OPIK_ACCESS_GROUP_ID"
-else
-    print_info "  Group-based access control is not configured - all tenant users can access Opik"
-fi
-print_info ""
-print_info "Uninstall deployment:"
-print_info "  helm uninstall opik -n $NAMESPACE"
-
 print_section "🔧 Troubleshooting Commands"
 print_info "Scenario-specific troubleshooting:"
 
@@ -2538,7 +2501,7 @@ esac
 print_info ""
 print_info "General troubleshooting:"
 print_info "If upgrade fails with backend/ClickHouse issues or stuck pods:"
-print_info "  # Use the SAFE built-in recovery function (preserves data):"
+print_info "  # Use the built-in recovery function (preserves data):"
 print_info "  source ./deploy-azure_alt.sh && safe_recover_from_failure"
 print_info ""
 print_info "  # Or create backup first, then recover:"
@@ -2627,133 +2590,3 @@ else
     print_info "  # 3. Configure DNS: yourdomain.com → $PUBLIC_IP_ADDRESS"
     print_info "  # 4. Run ./deploy-azure_alt.sh again"
 fi
-print_info ""
-print_info "Restart NGINX Ingress if needed:"
-print_info "  kubectl rollout restart deployment/nginx-ingress-ingress-nginx-controller -n nginx-ingress"
-print_info ""
-print_info "Check NGINX Ingress configuration:"
-print_info "  kubectl describe ingress -n $NAMESPACE"
-
-print_warning "🔐 Authentication is required - all users will be redirected to Microsoft login"
-
-print_section "🎯 Next Steps"
-print_info "Choose how you want to access Opik:"
-print_info "1. Use NGINX Ingress (recommended) - Access via public IP with authentication"
-print_info "2. Use port forwarding - Access via localhost (bypasses authentication)"
-read -p "Enter your choice (1 or 2): " -n 1 -r
-echo
-
-if [[ $REPLY == "2" ]]; then
-    print_step "Starting Port Forwarding"
-    print_info "🌐 Opik will be available at: http://localhost:5173"
-    print_warning "Press Ctrl+C to stop port forwarding"
-    kubectl port-forward -n $NAMESPACE svc/opik-frontend 5173:5173
-else
-    print_step "NGINX Ingress Ready"
-    if [ -n "$DOMAIN_NAME" ]; then
-        print_success "🌐 Application available at: https://$DOMAIN_NAME"
-        print_warning "Configure DNS: $DOMAIN_NAME → $PUBLIC_IP_ADDRESS"
-        print_success "✅ Access requires Azure AD authentication"
-        print_info "It may take a few minutes for NGINX Ingress to configure routing"
-        print_info "If you get 502 errors, wait a few minutes and try again"
-    else
-        print_error "Domain name not configured - deployment requires DOMAIN_NAME"
-        print_info "Please set DOMAIN_NAME in .env.azure-nginx and redeploy"
-    fi
-fi
-
-# =============================================================================
-# DATA PERSISTENCE INFORMATION
-# =============================================================================
-
-print_section "💾 Data Persistence Information"
-print_success "✅ Data is stored on persistent disks in the main resource group"
-print_info "Your data will survive cluster deletion and recreation!"
-
-print_info "Disk Resource Information:"
-print_key_value "Resource Group" "$RESOURCE_GROUP"
-print_info ""
-print_info "Active Opik Data Disks:"
-if [ -n "${MYSQL_DISK_NAME:-}" ]; then
-    print_key_value "MySQL" "$MYSQL_DISK_NAME"
-fi
-if [ -n "${CLICKHOUSE_DISK_NAME:-}" ]; then
-    print_key_value "ClickHouse" "$CLICKHOUSE_DISK_NAME"  
-fi
-if [ -n "${MINIO_DISK_NAME:-}" ]; then
-    print_key_value "MinIO" "$MINIO_DISK_NAME"
-fi
-if [ -n "${REDIS_DISK_NAME:-}" ]; then
-    print_key_value "Redis" "$REDIS_DISK_NAME"
-fi
-
-print_info ""
-case "${SCENARIO:-FRESH_INSTALL}" in
-    "FRESH_INSTALL")
-        print_success "✅ New persistent disks created successfully"
-        print_info "Data will persist across future cluster deletions and recreations"
-        ;;
-    "CLUSTER_RECREATION"|"VERSION_UPGRADE")
-        print_success "✅ Existing data preserved and restored successfully"
-        print_info "All your previous application data is intact and accessible"
-        ;;
-esac
-
-print_info ""
-print_success "✅ Data will persist across cluster deletions!"
-print_info "Safe to delete cluster - data disks remain in main resource group"
-print_warning "To delete data permanently, manually delete the opik-*-data-* disks"
-
-# =============================================================================
-# ACCESS INSTRUCTIONS
-# =============================================================================
-
-print_section "🌐 Access Instructions"
-print_info "Two access methods available:"
-print_info ""
-print_info "1. 🔐 HTTP IP ACCESS (WITH AUTHENTICATION):"
-print_key_value "URL" "http://$PUBLIC_IP_ADDRESS/"
-print_success "   ✅ Azure Entra ID Authentication Required"
-print_success "   ✅ Group-based Access Control"
-print_warning "   ⚠️ HTTP only (HTTPS with IP addresses doesn't work due to SSL certificate validation)"
-print_info ""
-print_info "2. 🔐 HTTPS DOMAIN ACCESS (FULL SECURITY):"
-print_key_value "URL" "https://$DOMAIN_NAME/"
-print_success "   ✅ Azure Entra ID Authentication"
-print_success "   ✅ HTTPS/TLS Encryption"  
-print_success "   ✅ Group-based Access Control"
-print_success "   ✅ SSL Certificate (Let's Encrypt)"
-print_info ""
-print_info "Once DNS A record is updated to point $DOMAIN_NAME -> $PUBLIC_IP_ADDRESS:"
-print_success "   → HTTPS domain access will work automatically"
-print_success "   → SSL certificate will be issued automatically"
-print_info "   → Both access methods require authentication"
-
-print_success "🎉 Deployment completed successfully!"
-
-# =============================================================================
-# IMPORTANT POST-DEPLOYMENT TROUBLESHOOTING
-# =============================================================================
-
-print_section "⚠️ IMPORTANT: Common Post-Deployment Issues"
-print_warning "🔧 If you experience 500 errors or database connection issues:"
-print_info ""
-print_info "SYMPTOM: API endpoints returning 500 errors (projects, experiments, etc.)"
-print_info "CAUSE: Database migrations may have failed silently during initial deployment"
-print_info "SOLUTION: Restart the backend deployment to re-run migrations properly"
-print_info ""
-print_success "✅ QUICK FIX COMMAND:"
-print_info "  kubectl rollout restart deployment/opik-backend -n $NAMESPACE"
-print_info ""
-print_info "Wait 2-3 minutes for backend to restart, then test the application."
-print_info "This will properly run both MySQL and ClickHouse migrations."
-print_info ""
-print_warning "💡 Why this happens:"
-print_info "- MySQL/ClickHouse may not be fully ready when migrations first run"
-print_info "- Migration script reports success even when database connections fail"
-print_info "- Backend startup fails due to incomplete database schemas"
-print_info "- Restarting allows migrations to run against properly initialized databases"
-print_info ""
-print_info "📊 Monitor the restart:"
-print_info "  kubectl get pods -n $NAMESPACE | grep backend"
-print_info "  kubectl logs -n $NAMESPACE deployment/opik-backend --tail=50"
