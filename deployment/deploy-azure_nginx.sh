@@ -988,14 +988,15 @@ else
     fi
 fi
 
+# Prompt user to enter CLIENT_SECRET securely
+echo -n "🔐 Please enter the CLIENT_SECRET for the app registration that you've created (Manage > Certificates & secrets): "
+read -s CLIENT_SECRET
+echo ""
+print_success "CLIENT_SECRET received"
+
+
 # Export authentication variables for Helm values substitution
 print_info "Exporting authentication variables for Helm"
-
-if [ -z "${CLIENT_SECRET:-}" ]; then
-    print_error "CLIENT_SECRET is empty - authentication setup failed"
-    exit 1
-fi
-
 export APP_ID
 export CLIENT_SECRET
 export TENANT_ID
@@ -1020,23 +1021,6 @@ print_success "Connected to AKS cluster"
 # =============================================================================
 # NGINX INGRESS CONTROLLER SETUP
 # =============================================================================
-# 
-# IMPORTANT: Large OAuth2 Token Buffer Configuration
-# ==================================================
-# Azure AD OAuth2 tokens can be extremely large (50KB+) for users with many 
-# group memberships, causing "502 Bad Gateway" errors due to "upstream sent 
-# too big header" issues.
-#
-# The following buffer settings ensure NGINX can handle large OAuth2 responses:
-# - proxy-buffer-size: 16k (increased from 4k default)
-# - proxy-buffers-number: 8 (number of proxy buffers)
-# - proxy-busy-buffers-size: 64k (busy buffers size)  
-# - large-client-header-buffers: 4 32k (large client headers support)
-#
-# Without these settings, authentication may fail with 502 errors after
-# successful OAuth2 login, particularly for users in multiple Azure AD groups.
-# =============================================================================
-
 print_step "🔌 Installing NGINX Ingress Controller"
 
 # Install NGINX Ingress Controller using Helm
@@ -1382,7 +1366,6 @@ if helm list -n $NAMESPACE | grep -q "opik"; then
         if kubectl exec chi-opik-clickhouse-cluster-0-0-0 -n $NAMESPACE -- clickhouse-client --query "SELECT 1" &>/dev/null; then
             print_info "Clearing ONLY migration locks (preserving all data and schema)"
             kubectl exec chi-opik-clickhouse-cluster-0-0-0 -n $NAMESPACE -- clickhouse-client --query "DROP TABLE IF EXISTS default.DATABASECHANGELOGLOCK" 2>/dev/null || true
-            # NEVER run: DROP DATABASE IF EXISTS opik  ❌ - This would destroy all data!
         fi
         
         # Clear stuck MySQL migration locks too
@@ -1554,7 +1537,6 @@ fi
 
 if [ -z "$CLIENT_SECRET" ]; then
     print_error "CLIENT_SECRET is empty - OAuth2 proxy will fail to start"
-    print_error "This indicates the authentication setup did not complete properly"
     exit 1
 fi
 
@@ -2430,11 +2412,6 @@ case "${SCENARIO:-FRESH_INSTALL}" in
         ;;
 esac
 
-print_section "🔐 Authentication Configuration"
-print_key_value "App Registration" "$OPIK_APP_NAME"
-print_key_value "App ID" "$APP_ID"
-print_key_value "Tenant ID" "$TENANT_ID"
-print_key_value "Client Secret" "$CLIENT_SECRET"
 print_key_value "OAuth2 Cookie Secret" "$OAUTH2_COOKIE_SECRET"
 if [ -n "${OPIK_ACCESS_GROUP_ID:-}" ]; then
     print_key_value "Access Group" "$OPIK_ACCESS_GROUP_NAME"
@@ -2588,5 +2565,5 @@ else
     print_info "  # 1. Set DOMAIN_NAME in .env.azure-nginx"
     print_info "  # 2. Set EMAIL_FOR_LETSENCRYPT in .env.azure-nginx"
     print_info "  # 3. Configure DNS: yourdomain.com → $PUBLIC_IP_ADDRESS"
-    print_info "  # 4. Run ./deploy-azure_alt.sh again"
+    print_info "  # 4. Run ./deploy-azure_nginx.sh again"
 fi
