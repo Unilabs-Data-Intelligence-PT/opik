@@ -43,7 +43,7 @@ because it was more cost-effective.
 | `deploy-azure_nginx.sh` | Main deployment script with cert-manager and OAuth2 proxy |
 | `.env.azure-nginx` | Configuration file for deployment (domain, SSL, authentication) |
 | `helm-values-azure-nginx-template.yaml` | Helm values template optimized for NGINX Ingress |
-| `resolve-helm-template.sh` | Script to resolve Helm template with environment variables (useful to resolve the template file with new values for quick configuration changes to the deployment Helm file) |
+| `resolve-helm-template.sh` | Script to resolve Helm template with environment variables (useful to resolve the template file with new values for quick configuration changes to the deployment Helm file to use to deploy afterwards through "helm upgrade ...") |
 
 
 ### Configure the Deployment
