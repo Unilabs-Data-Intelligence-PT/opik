@@ -747,14 +747,12 @@ fi
 
 print_info "App Registration Name: $OPIK_APP_NAME"
 
-# Check if app registration already exists
-print_info "Searching for existing App Registration with name: $OPIK_APP_NAME"
+# Check if app registration already exists, create if needed
+print_info "Checking for existing App Registration with name: $OPIK_APP_NAME"
 APP_ID=$(az ad app list --display-name "$OPIK_APP_NAME" --query "[0].appId" -o tsv)
 
-print_info "Search result for APP_ID: '$APP_ID'"
-
 if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-    print_warning "No existing app registration found - creating new one"
+    print_info "App Registration not found - creating new one"
 
     # Determine redirect URL based on domain or public IP
     if [ -n "${DOMAIN_NAME:-}" ]; then
@@ -774,226 +772,215 @@ if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
         --query "appId" -o tsv)
     
     print_success "Created App Registration: $OPIK_APP_NAME (App ID: $APP_ID)"
+else
+    print_success "Found existing App Registration: $OPIK_APP_NAME (App ID: $APP_ID)"
+fi
+
+# Check if service principal exists, create if needed
+print_info "Checking for service principal..."
+EXISTING_SP=$(az ad sp list --filter "appId eq '$APP_ID'" --query "[0].appId" -o tsv 2>/dev/null)
+
+if [ -n "$EXISTING_SP" ] && [ "$EXISTING_SP" != "null" ]; then
+    print_success "Service principal already exists"
+else
+    print_info "Service principal not found - creating it"
     
-    # Add required Microsoft Graph permissions
-    # Note:
-    # 00000003-0000-0000-c000-000000000000 = Microsoft Graph API (fixed GUID)
-    # e1fe6dd8-ba31-4d61-89e7-88639da4683d = User.Read permission (fixed GUID)
-    # 64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0 = email permission (fixed GUID)
-    # 14dad69e-099b-42c9-810b-d002981feec1 = profile permission (fixed GUID)
-    # 37f7f235-527c-4136-accd-4a02d197296e = openid permission (fixed GUID)
-    # Scope = Delegated permission (acts on behalf of signed-in user)
-    print_step "Configuring Microsoft Graph permissions"
-    
-    # Add User.Read permission
-    az ad app permission add \
-        --id $APP_ID \
-        --api 00000003-0000-0000-c000-000000000000 \
-        --api-permissions e1fe6dd8-ba31-4d61-89e7-88639da4683d=Scope
-    
-    # Add email permission for OAuth2 user profile access
-    az ad app permission add \
-        --id $APP_ID \
-        --api 00000003-0000-0000-c000-000000000000 \
-        --api-permissions 64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0=Scope
-    
-    # Add profile permission for OAuth2 user profile access
-    az ad app permission add \
-        --id $APP_ID \
-        --api 00000003-0000-0000-c000-000000000000 \
-        --api-permissions 14dad69e-099b-42c9-810b-d002981feec1=Scope
-    
-    # Add openid permission for OAuth2 authentication
-    az ad app permission add \
-        --id $APP_ID \
-        --api 00000003-0000-0000-c000-000000000000 \
-        --api-permissions 37f7f235-527c-4136-accd-4a02d197296e=Scope
-    
-    print_success "Added Microsoft Graph permissions: User.Read, email, profile, openid"
-    
-    # Grant admin consent for the permissions with retry logic for propagation delays
-    print_info "Granting admin consent for permissions (waiting for Azure AD propagation)"
-    
-    # Call the retry function
-    grant_admin_consent_with_retry "$APP_ID"
-        
-    # Create service principal (check if it already exists first)
-    print_info "Creating service principal"
-    
-    # Add a more intelligent wait for Azure AD propagation
-    print_info "Waiting for Azure AD propagation (this may take 30-60 seconds)..."
-    MAX_SP_ATTEMPTS=6
+    # Create service principal with retry logic
+    MAX_SP_ATTEMPTS=3
     SP_ATTEMPT=1
     
     while [ $SP_ATTEMPT -le $MAX_SP_ATTEMPTS ]; do
         print_info "Service principal creation attempt $SP_ATTEMPT/$MAX_SP_ATTEMPTS..."
         
-        # Check if service principal already exists
-        EXISTING_SP=$(az ad sp show --id $APP_ID --query "appId" -o tsv 2>/dev/null)
-        
-        if [ -n "$EXISTING_SP" ] && [ "$EXISTING_SP" != "null" ]; then
-            print_success "Service principal already exists for this app registration"
-            break
-        fi
-        
-        # Try to create the service principal
         if az ad sp create --id $APP_ID &>/dev/null; then
-            print_success "Created service principal for app registration"
+            print_success "Created service principal"
             break
         else
             if [ $SP_ATTEMPT -eq $MAX_SP_ATTEMPTS ]; then
                 print_error "Failed to create service principal after $MAX_SP_ATTEMPTS attempts"
-                print_warning "Azure AD may still be propagating the app registration"
-                print_info "You can try running the script again in a few minutes"
+                print_warning "Please create it manually: \"az ad sp create --id $APP_ID\" and re-run the script"
                 exit 1
             else
-                print_warning "Service principal creation failed (attempt $SP_ATTEMPT) - Azure AD may still be propagating"
-                print_info "Waiting 30 seconds before retry..."
-                sleep 30
+                print_warning "Service principal creation failed - retrying in 10 seconds..."
+                sleep 10
                 SP_ATTEMPT=$((SP_ATTEMPT + 1))
             fi
         fi
     done
-    
-    # Generate client secret
-    print_info "Generating client secret"
-    CLIENT_SECRET=$(az ad app credential reset --id $APP_ID --query "password" -o tsv)
-
-    print_success "Generated client secret for app registration"
-
-    # Display authentication credentials in a standardized format
-    print_section "Authentication Credentials Created"
-    print_key_value "App ID" "$APP_ID"
-    print_key_value "Client Secret" "$CLIENT_SECRET"
-    print_key_value "Tenant ID" "$TENANT_ID"
-    print_key_value "Redirect URL" "$REDIRECT_URL"
-    print_warning "IMPORTANT: Save these credentials securely - they will not be stored in files!"
-    
-else
-    print_warning "App Registration $OPIK_APP_NAME already exists (App ID: $APP_ID)"
-    print_info "Found existing App Registration with ID: $APP_ID"
-    
-    # Validate that we have a valid APP_ID
-    if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-        print_error "Failed to retrieve valid APP_ID for existing app registration"
-        print_error "This should not happen - something is wrong with the Azure AD query"
-        exit 1
-    fi
-    
-    # Check and add Microsoft Graph permissions if missing
-    print_info "Checking Microsoft Graph permissions"
-    
-    # Define required permissions with their GUIDs using a shell-compatible approach
-    REQUIRED_PERMISSIONS=(
-        "e1fe6dd8-ba31-4d61-89e7-88639da4683d:User.Read"
-        "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0:email"
-        "14dad69e-099b-42c9-810b-d002981feec1:profile"
-        "37f7f235-527c-4136-accd-4a02d197296e:openid"
-        "62a82d76-70ea-41e2-9197-370581804d09:GroupMember.Read.All"
-    )
-    
-    MISSING_PERMISSIONS=()
-    
-    # Check each required permission
-    for permission_entry in "${REQUIRED_PERMISSIONS[@]}"; do
-        permission_id="${permission_entry%%:*}"
-        permission_name="${permission_entry##*:}"
-        EXISTING=$(az ad app permission list --id $APP_ID --query "[?resourceAppId=='00000003-0000-0000-c000-000000000000'].resourceAccess[?id=='$permission_id']" -o tsv)
-        if [ -z "$EXISTING" ]; then
-            MISSING_PERMISSIONS+=("$permission_id:$permission_name")
-            print_warning "Microsoft Graph $permission_name permission missing"
-        else
-            print_success "Microsoft Graph $permission_name permission already configured"
-        fi
-    done
-    
-    # Add missing permissions
-    if [ ${#MISSING_PERMISSIONS[@]} -gt 0 ]; then
-        print_info "Adding missing Microsoft Graph permissions"
-        for permission_entry in "${MISSING_PERMISSIONS[@]}"; do
-            permission_id="${permission_entry%%:*}"
-            permission_name="${permission_entry##*:}"
-            print_info "Adding $permission_name permission..."
-            az ad app permission add \
-                --id $APP_ID \
-                --api 00000003-0000-0000-c000-000000000000 \
-                --api-permissions "$permission_id=Scope"
-        done
-        
-        # Grant admin consent with retry (reuse the function defined above)
-        print_info "Granting admin consent for added permissions"
-        grant_admin_consent_with_retry "$APP_ID"
-        print_success "Added and consented missing Microsoft Graph permissions"
-    else
-        print_success "All required Microsoft Graph permissions already configured"
-    fi
-    
-    # Check if CLIENT_SECRET is already set
-    if [ -z "${CLIENT_SECRET:-}" ]; then
-        print_warning "CLIENT_SECRET not found in environment variables - regenerating client secret"
-        
-        # Validate APP_ID before trying to reset credentials
-        if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-            print_error "Cannot regenerate client secret: APP_ID is empty or invalid"
-            print_error "This indicates an issue with app registration detection"
-            exit 1
-        fi
-        
-        # Generate new client secret
-        CLIENT_SECRET=$(az ad app credential reset --id $APP_ID --query "password" -o tsv)
-        
-        if [ -n "$CLIENT_SECRET" ]; then
-            print_success "Regenerated client secret for existing app registration"
-            
-            # Display updated credentials
-            print_section "Authentication Credentials (Regenerated)"
-            print_key_value "App ID" "$APP_ID"
-            print_key_value "Client Secret" "$CLIENT_SECRET"
-            print_key_value "Tenant ID" "$TENANT_ID"
-            print_warning "IMPORTANT: Client secret has been regenerated - update your records!"
-        else
-            print_error "Failed to regenerate client secret - deployment cannot continue"
-            exit 1
-        fi
-    else
-        print_success "Using existing CLIENT_SECRET from environment"
-        
-        # Display existing credentials (without showing the secret)
-        print_section "Authentication Credentials (Existing)"
-        print_key_value "App ID" "$APP_ID"
-        print_key_value "Client Secret" "****** (existing)"
-        print_key_value "Tenant ID" "$TENANT_ID"
-    fi
 fi
+
+
+# Configure permissions and settings
+print_step "Configuring Microsoft Graph permissions"
+
+# Function to check if permission exists
+check_permission_exists() {
+    local app_id="$1"
+    local resource_app_id="$2"
+    local permission_id="$3"
+    
+    local existing_permissions=$(az ad app permission list --id "$app_id" --query "[?resourceAppId=='$resource_app_id'].resourceAccess[].id" -o tsv 2>/dev/null || echo "")
+    echo "$existing_permissions" | grep -q "^$permission_id$"
+}
+
+# Function to add permission if it doesn't exist
+add_permission_if_missing() {
+    local app_id="$1"
+    local resource_app_id="$2"
+    local permission_id="$3"
+    local permission_name="$4"
+    local permission_type="${5:-Scope}"
+    
+    if check_permission_exists "$app_id" "$resource_app_id" "$permission_id"; then
+        print_success "Microsoft Graph $permission_name permission already exists - skipping"
+    else
+        print_info "Adding Microsoft Graph $permission_name permission"
+        az ad app permission add \
+            --id "$app_id" \
+            --api "$resource_app_id" \
+            --api-permissions "$permission_id=$permission_type"
+        print_success "Added Microsoft Graph $permission_name permission"
+    fi
+}
+
+# Microsoft Graph API GUID
+MICROSOFT_GRAPH_API="00000003-0000-0000-c000-000000000000"
+
+# Add required permissions (only if they don't exist)
+add_permission_if_missing "$APP_ID" "$MICROSOFT_GRAPH_API" "e1fe6dd8-ba31-4d61-89e7-88639da4683d" "User.Read"
+add_permission_if_missing "$APP_ID" "$MICROSOFT_GRAPH_API" "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0" "email"
+add_permission_if_missing "$APP_ID" "$MICROSOFT_GRAPH_API" "14dad69e-099b-42c9-810b-d002981feec1" "profile"
+add_permission_if_missing "$APP_ID" "$MICROSOFT_GRAPH_API" "37f7f235-527c-4136-accd-4a02d197296e" "openid"
+
+# Configure Application ID URI
+print_step "Configuring Application ID URI"
+APPLICATION_ID_URI="api://$APP_ID"
+
+CURRENT_URI=$(az ad app show --id "$APP_ID" --query "identifierUris[0]" -o tsv 2>/dev/null || echo "")
+if [ "$CURRENT_URI" = "$APPLICATION_ID_URI" ]; then
+    print_success "Application ID URI already configured: $APPLICATION_ID_URI"
+else
+    print_info "Setting Application ID URI to: $APPLICATION_ID_URI"
+    az ad app update --id "$APP_ID" --identifier-uris "$APPLICATION_ID_URI"
+    print_success "Application ID URI configured: $APPLICATION_ID_URI"
+fi
+
+# Configure access_as_user scope
+print_step "Configuring access_as_user scope"
+
+EXISTING_SCOPE=$(az ad app show --id "$APP_ID" --query "api.oauth2PermissionScopes[?value=='access_as_user'].value" -o tsv 2>/dev/null || echo "")
+if [ "$EXISTING_SCOPE" = "access_as_user" ]; then
+    print_success "access_as_user scope already exists"
+else
+    print_info "Adding access_as_user scope"
+
+    # Generate a new GUID for the scope
+    SCOPE_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+
+    # Get the entire existing API section to preserve all properties
+    EXISTING_API=$(az ad app show --id "$APP_ID" --query "api" -o json 2>/dev/null || echo '{}')
+
+    # Get existing oauth2PermissionScopes and filter out any existing "access_as_user" scope
+    EXISTING_SCOPES=$(echo "$EXISTING_API" | jq '.oauth2PermissionScopes // []')
+    FILTERED_SCOPES=$(echo "$EXISTING_SCOPES" | jq 'map(select(.value != "access_as_user"))')
+
+    # Create new scope object
+    NEW_SCOPE='{
+        "id": "'$SCOPE_ID'",
+        "adminConsentDescription": "Allow access to Opik API",
+        "adminConsentDisplayName": "Access Opik",
+        "isEnabled": true,
+        "type": "User",
+        "userConsentDescription": null,
+        "userConsentDisplayName": null,
+        "value": "access_as_user"
+    }'
+
+    # Add new scope to filtered existing scopes
+    UPDATED_SCOPES=$(echo "$FILTERED_SCOPES" | jq --argjson newscope "$NEW_SCOPE" '. + [$newscope]')
+
+    # Update the API section with the new scopes while preserving other properties
+    UPDATED_API=$(echo "$EXISTING_API" | jq --argjson scopes "$UPDATED_SCOPES" '.oauth2PermissionScopes = $scopes')
+
+    # Write the complete API section to file
+    echo "$UPDATED_API" > scope_definition.json
+
+    az ad app update --id "$APP_ID" --set api=@scope_definition.json
+    rm -f scope_definition.json
+    print_success "Added access_as_user scope with ID: $SCOPE_ID"
+
+fi
+
+# Add self API permission
+print_step "Configuring self API permission"
+
+ACCESS_AS_USER_SCOPE_ID=$(az ad app show --id "$APP_ID" --query "api.oauth2PermissionScopes[?value=='access_as_user'].id" -o tsv 2>/dev/null || echo "")
+
+if [ -n "$ACCESS_AS_USER_SCOPE_ID" ]; then
+    if check_permission_exists "$APP_ID" "$APP_ID" "$ACCESS_AS_USER_SCOPE_ID"; then
+        print_success "Self API permission already exists"
+    else
+        print_info "Adding self API permission"
+        az ad app permission add \
+            --id "$APP_ID" \
+            --api "$APP_ID" \
+            --api-permissions "$ACCESS_AS_USER_SCOPE_ID=Scope"
+        print_success "Added self API permission"
+    fi
+else
+    print_warning "Could not find access_as_user scope ID - skipping self permission"
+fi
+
+# Grant admin consent
+print_step "Granting admin consent"
+grant_admin_consent_with_retry "$APP_ID"
+
+# Manual configuration steps
+print_step "🔧 Manual Configuration Required"
+print_warning "⚠️  Please complete the following manual steps:"
+print_info ""
+print_info "1. SET ACCESS TOKEN VERSION:"
+print_info "   - Go to: https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Manifest/appId/$APP_ID"
+print_info "   - Find: \"accessTokenAcceptedVersion\": null"
+print_info "   - Change to: \"accessTokenAcceptedVersion\": 2"
+print_info "   - Click 'Save'"
+print_info ""
+echo -n "Press ENTER after you have set the access token version: "
+read
+print_success "✅ Access token version configuration acknowledged"
+
+print_info ""
+print_info "2. CREATE CLIENT SECRET:"
+print_info "   - Go to: https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$APP_ID"
+print_info "   - Click 'Certificates & secrets' → 'New client secret'"
+print_info "   - Add description and expiration, then click 'Add'"
+print_info "   - Copy the secret VALUE (not the ID)"
+print_info ""
+echo -n "🔐 Please enter the CLIENT_SECRET you just created: "
+read -s CLIENT_SECRET
+echo ""
+print_success "CLIENT_SECRET received"
+
+# Display final configuration
+print_section "🎉 Azure Entra ID Configuration Complete"
+print_key_value "App ID" "$APP_ID"
+print_key_value "Tenant ID" "$TENANT_ID"
+print_key_value "Application ID URI" "$APPLICATION_ID_URI"
 
 # Generate OAuth2 cookie secret if not provided or if existing one is invalid
 if [ -z "${OAUTH2_COOKIE_SECRET:-}" ]; then
     # Generate exactly 32 bytes for AES cipher compatibility
     OAUTH2_COOKIE_SECRET=$(openssl rand -hex 16)
     print_success "Generated OAuth2 cookie secret (32 bytes)"
+    print_warning "Existing OAuth2 cookie secret is $COOKIE_SECRET_LENGTH bytes, but 32 bytes required"
+    print_info "Regenerating OAuth2 cookie secret with correct length"
+    OAUTH2_COOKIE_SECRET=$(openssl rand -hex 16)
+    print_success "Generated new OAuth2 cookie secret (32 bytes)"
     print_section "OAuth2 Configuration"
     print_key_value "Cookie Secret" "$OAUTH2_COOKIE_SECRET"
-else
-    # Validate existing cookie secret length
-    COOKIE_SECRET_LENGTH=${#OAUTH2_COOKIE_SECRET}
-    if [ "$COOKIE_SECRET_LENGTH" -ne 32 ]; then
-        print_warning "Existing OAuth2 cookie secret is $COOKIE_SECRET_LENGTH bytes, but 32 bytes required"
-        print_info "Regenerating OAuth2 cookie secret with correct length"
-        OAUTH2_COOKIE_SECRET=$(openssl rand -hex 16)
-        print_success "Generated new OAuth2 cookie secret (32 bytes)"
-        print_section "OAuth2 Configuration"
-        print_key_value "Cookie Secret" "$OAUTH2_COOKIE_SECRET"
     else
         print_success "Using existing OAuth2 cookie secret from environment (32 bytes)"
-    fi
 fi
-
-# Prompt user to enter CLIENT_SECRET securely
-echo -n "🔐 Please enter the CLIENT_SECRET for the app registration that you've created (Manage > Certificates & secrets): "
-read -s CLIENT_SECRET
-echo ""
-print_success "CLIENT_SECRET received"
-
 
 # Export authentication variables for Helm values substitution
 print_info "Exporting authentication variables for Helm"
