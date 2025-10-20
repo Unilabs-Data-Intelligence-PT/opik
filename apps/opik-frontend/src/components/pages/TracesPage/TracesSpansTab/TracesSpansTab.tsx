@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   JsonParam,
   NumberParam,
@@ -95,6 +95,7 @@ import BaseTraceDataTypeIcon from "@/components/pages-shared/traces/TraceDetails
 import { SPAN_TYPE_LABELS_MAP } from "@/constants/traces";
 import SpanTypeCell from "@/components/shared/DataTableCells/SpanTypeCell";
 import { Filter } from "@/types/filters";
+import { USER_FEEDBACK_NAME } from "@/constants/shared";
 
 const getRowId = (d: Trace | Span) => d.id;
 
@@ -219,6 +220,7 @@ const COLUMNS_SCORES_ORDER_KEY = "traces-scores-columns-order";
 const DYNAMIC_COLUMNS_KEY = "traces-dynamic-columns";
 const PAGINATION_SIZE_KEY = "traces-pagination-size";
 const ROW_HEIGHT_KEY = "traces-row-height";
+const USER_FEEDBACK_COLUMN_ID = `${COLUMN_FEEDBACK_SCORES_ID}.${USER_FEEDBACK_NAME}`;
 
 type TracesSpansTabProps = {
   type: TRACE_DATA_TYPE;
@@ -417,6 +419,22 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
     },
   );
 
+  const { refetch: refetchExportData } = useTracesOrSpansList(
+    {
+      projectId,
+      type: type as TRACE_DATA_TYPE,
+      sorting: sortedColumns,
+      filters,
+      page: page as number,
+      size: size as number,
+      search: search as string,
+      truncate: false,
+    },
+    {
+      enabled: false,
+    },
+  );
+
   const { data: statisticData, refetch: refetchStatistic } =
     useTracesOrSpansStatistic(
       {
@@ -508,9 +526,39 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
     setSelectedColumns,
   });
 
+  const isUserFeedbackColumnMissing = !selectedColumns.includes(
+    USER_FEEDBACK_COLUMN_ID,
+  );
+
+  // Ensure "User Feedback" column is always selected
+  useEffect(() => {
+    if (isUserFeedbackColumnMissing) {
+      setSelectedColumns((prev) => [...prev, USER_FEEDBACK_COLUMN_ID]);
+    }
+  }, [isUserFeedbackColumnMissing, setSelectedColumns]);
+
   const scoresColumnsData = useMemo(() => {
+    // Always include "User feedback" column, even if it has no data
+    const userFeedbackColumn: ColumnData<BaseTraceData> = {
+      id: USER_FEEDBACK_COLUMN_ID,
+      label: USER_FEEDBACK_NAME,
+      type: COLUMN_TYPE.number,
+      header: FeedbackScoreHeader as never,
+      cell: FeedbackScoreCell as never,
+      accessorFn: (row) =>
+        row.feedback_scores?.find((f) => f.name === USER_FEEDBACK_NAME),
+      statisticKey: USER_FEEDBACK_COLUMN_ID,
+      disabled: true,
+    };
+
+    // Filter out "User feedback" from dynamic columns to avoid duplicates
+    const otherDynamicColumns = dynamicScoresColumns.filter(
+      (col) => col.id !== USER_FEEDBACK_COLUMN_ID,
+    );
+
     return [
-      ...dynamicScoresColumns.map(
+      userFeedbackColumn,
+      ...otherDynamicColumns.map(
         ({ label, id, columnType }) =>
           ({
             id,
@@ -529,6 +577,25 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
   const selectedRows: Array<Trace | Span> = useMemo(() => {
     return rows.filter((row) => rowSelection[row.id]);
   }, [rowSelection, rows]);
+
+  const getDataForExport = useCallback(async (): Promise<
+    Array<Trace | Span>
+  > => {
+    const result = await refetchExportData();
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    if (!result.data?.content) {
+      throw new Error("Failed to fetch data");
+    }
+
+    const allRows = result.data.content;
+    const selectedIds = Object.keys(rowSelection);
+
+    return allRows.filter((row) => selectedIds.includes(row.id));
+  }, [refetchExportData, rowSelection]);
 
   const handleRowClick = useCallback(
     (row?: Trace | Span, lastSection?: DetailsActionSectionValue) => {
@@ -838,7 +905,8 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
           <TracesActionsPanel
             projectId={projectId}
             projectName={projectName}
-            rows={selectedRows}
+            getDataForExport={getDataForExport}
+            selectedRows={selectedRows}
             columnsToExport={columnsToExport}
             type={type as TRACE_DATA_TYPE}
             onClearSelection={clearRowSelection}

@@ -27,6 +27,7 @@ import com.comet.opik.api.TraceThreadUpdate;
 import com.comet.opik.api.TraceUpdate;
 import com.comet.opik.api.Visibility;
 import com.comet.opik.api.VisibilityMode;
+import com.comet.opik.api.attachment.EntityType;
 import com.comet.opik.api.error.ErrorMessage;
 import com.comet.opik.api.filter.Field;
 import com.comet.opik.api.filter.FieldType;
@@ -41,12 +42,14 @@ import com.comet.opik.api.resources.utils.ClickHouseContainerUtils;
 import com.comet.opik.api.resources.utils.ClientSupportUtils;
 import com.comet.opik.api.resources.utils.DurationUtils;
 import com.comet.opik.api.resources.utils.MigrationUtils;
+import com.comet.opik.api.resources.utils.MinIOContainerUtils;
 import com.comet.opik.api.resources.utils.MySQLContainerUtils;
 import com.comet.opik.api.resources.utils.RedisContainerUtils;
 import com.comet.opik.api.resources.utils.TestDropwizardAppExtensionUtils;
 import com.comet.opik.api.resources.utils.TestUtils;
 import com.comet.opik.api.resources.utils.WireMockUtils;
 import com.comet.opik.api.resources.utils.resources.AnnotationQueuesResourceClient;
+import com.comet.opik.api.resources.utils.resources.AttachmentResourceClient;
 import com.comet.opik.api.resources.utils.resources.GuardrailsGenerator;
 import com.comet.opik.api.resources.utils.resources.GuardrailsResourceClient;
 import com.comet.opik.api.resources.utils.resources.ProjectResourceClient;
@@ -75,6 +78,7 @@ import com.comet.opik.infrastructure.db.TransactionTemplateAsync;
 import com.comet.opik.infrastructure.usagelimit.Quota;
 import com.comet.opik.podam.InRangeStrategy;
 import com.comet.opik.podam.PodamFactoryUtils;
+import com.comet.opik.utils.AttachmentPayloadUtilsTest;
 import com.comet.opik.utils.JsonUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.uuid.Generators;
@@ -130,6 +134,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -236,6 +241,7 @@ class TracesResourceTest {
     private final GenericContainer<?> ZOOKEEPER_CONTAINER = ClickHouseContainerUtils.newZookeeperContainer();
     private final ClickHouseContainer CLICK_HOUSE_CONTAINER = ClickHouseContainerUtils
             .newClickHouseContainer(ZOOKEEPER_CONTAINER);
+    private final GenericContainer<?> MINIO = MinIOContainerUtils.newMinIOContainer();
 
     private final WireMockUtils.WireMockRuntime wireMock;
 
@@ -243,7 +249,8 @@ class TracesResourceTest {
     private final TestDropwizardAppExtension APP;
 
     {
-        Startables.deepStart(REDIS, MYSQL_CONTAINER, CLICK_HOUSE_CONTAINER, ZOOKEEPER_CONTAINER).join();
+        Startables.deepStart(REDIS, MYSQL_CONTAINER, CLICK_HOUSE_CONTAINER, ZOOKEEPER_CONTAINER, MINIO).join();
+        String minioUrl = "http://%s:%d".formatted(MINIO.getHost(), MINIO.getMappedPort(9000));
 
         wireMock = WireMockUtils.startWireMock();
 
@@ -252,9 +259,17 @@ class TracesResourceTest {
 
         MigrationUtils.runMysqlDbMigration(MYSQL_CONTAINER);
         MigrationUtils.runClickhouseDbMigration(CLICK_HOUSE_CONTAINER);
+        MinIOContainerUtils.setupBucketAndCredentials(minioUrl);
 
         APP = TestDropwizardAppExtensionUtils.newTestDropwizardAppExtension(
-                MYSQL_CONTAINER.getJdbcUrl(), databaseAnalyticsFactory, wireMock.runtimeInfo(), REDIS.getRedisURI());
+                TestDropwizardAppExtensionUtils.AppContextConfig.builder()
+                        .jdbcUrl(MYSQL_CONTAINER.getJdbcUrl())
+                        .databaseAnalyticsFactory(databaseAnalyticsFactory)
+                        .redisUrl(REDIS.getRedisURI())
+                        .runtimeInfo(wireMock.runtimeInfo())
+                        .isMinIO(true)
+                        .minioUrl(minioUrl)
+                        .build());
     }
 
     private final PodamFactory factory = PodamFactoryUtils.newPodamFactory();
@@ -269,6 +284,7 @@ class TracesResourceTest {
     private GuardrailsResourceClient guardrailsResourceClient;
     private GuardrailsGenerator guardrailsGenerator;
     private ThreadCommentResourceClient threadCommentResourceClient;
+    private AttachmentResourceClient attachmentResourceClient;
     private AnnotationQueuesResourceClient annotationQueuesResourceClient;
 
     @BeforeAll
@@ -288,6 +304,7 @@ class TracesResourceTest {
         this.threadCommentResourceClient = new ThreadCommentResourceClient(client, baseURI);
         this.annotationQueuesResourceClient = new AnnotationQueuesResourceClient(client, baseURI);
         this.guardrailsGenerator = new GuardrailsGenerator();
+        this.attachmentResourceClient = new AttachmentResourceClient(client);
     }
 
     private void mockTargetWorkspace(String apiKey, String workspaceName, String workspaceId) {
@@ -7399,6 +7416,178 @@ class TracesResourceTest {
                 }
             }
         }
+
+        @Test
+        @DisplayName("when trace contains base64 attachments, then attachments are stripped and stored")
+        void create__whenTraceContainsBase64Attachments__thenAttachmentsAreStrippedAndStored() throws Exception {
+            // Given a trace with base64 encoded attachments in its input
+            // Create longer base64 strings that exceed the 5000 character threshold using utility
+            String base64Png = AttachmentPayloadUtilsTest.createLargePngBase64();
+            String base64Gif = AttachmentPayloadUtilsTest.createLargeGifBase64();
+
+            String originalInputJson = String.format(
+                    "{\"message\": \"Images attached:\", " +
+                            "\"png_data\": \"%s\", " +
+                            "\"gif_data\": \"%s\", " +
+                            "\"user_id\": \"user123\", " +
+                            "\"session_id\": \"session456\", " +
+                            "\"timestamp\": \"2024-01-15T10:30:00Z\", " +
+                            "\"model_config\": {\"temperature\": 0.7, \"max_tokens\": 1000}, " +
+                            "\"prompt\": \"Please analyze these images and provide a detailed description\", " +
+                            "\"context\": [\"Previous conversation history\", \"User preferences\"], " +
+                            "\"metadata\": {\"source\": \"web_app\", \"version\": \"1.2.3\"}}",
+                    base64Png, base64Gif);
+
+            var trace = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(DEFAULT_PROJECT)
+                    .input(JsonUtils.readTree(originalInputJson))
+                    .output(JsonUtils.readTree("{\"result\": \"processed\"}"))
+                    .metadata(JsonUtils.readTree("{}"))
+                    .build();
+
+            // When creating the trace
+            UUID traceId = traceResourceClient.createTrace(trace, API_KEY, TEST_WORKSPACE);
+            assertThat(traceId).isNotNull();
+
+            // Then the trace should have attachments stripped and replaced with references
+            // Wait for async processing and attachment stripping
+            // Use strip_attachments=true to get attachment references instead of re-injected full base64 data
+            Awaitility.await().pollInterval(500, TimeUnit.MILLISECONDS).untilAsserted(() -> {
+                Trace retrievedTrace = traceResourceClient.getById(traceId, TEST_WORKSPACE, API_KEY, true);
+                assertThat(retrievedTrace).isNotNull();
+                // Ensure trace is retrieved successfully before proceeding with assertions
+            });
+
+            Trace retrievedTrace = traceResourceClient.getById(traceId, TEST_WORKSPACE, API_KEY, true);
+            assertThat(retrievedTrace).isNotNull();
+
+            JsonNode retrievedInput = retrievedTrace.input();
+            assertThat(retrievedInput).isNotNull();
+
+            String retrievedInputString = retrievedInput.toString();
+
+            // Verify the base64 data is replaced by attachment references (bracketed, with context prefix and timestamp)
+            assertThat(retrievedInputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.png\\]");
+            assertThat(retrievedInputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.gif\\]");
+            assertThat(retrievedInputString).doesNotContain(base64Png);
+            assertThat(retrievedInputString).doesNotContain(base64Gif);
+
+            var projectId = projectResourceClient.getByName(DEFAULT_PROJECT, API_KEY, TEST_WORKSPACE).id();
+
+            // Verify attachments can be listed via AttachmentResourceClient
+            String baseUrl = Base64.getUrlEncoder().encodeToString(baseURI.getBytes());
+
+            var attachmentPage = attachmentResourceClient.attachmentList(
+                    projectId,
+                    EntityType.TRACE,
+                    traceId,
+                    baseUrl,
+                    API_KEY,
+                    TEST_WORKSPACE,
+                    200);
+
+            // Verify we got attachments
+            assertThat(attachmentPage).isNotNull();
+            assertThat(attachmentPage.content()).hasSize(2);
+
+            // Verify attachment names contain our references with context prefixes
+            var attachmentNames = attachmentPage.content().stream()
+                    .map(attachment -> attachment.fileName())
+                    .toList();
+            // Verify attachment names contain our references with context prefixes (with timestamps)
+            assertThat(attachmentNames).anyMatch(name -> name.matches("input-attachment-1-\\d+\\.png"));
+            assertThat(attachmentNames).anyMatch(name -> name.matches("input-attachment-2-\\d+\\.gif"));
+        }
+
+        @Test
+        @DisplayName("when trace is fetched with truncate flag, then attachments are handled accordingly")
+        void getById__whenFetchedWithTruncateFlag__thenAttachmentsAreHandledAccordingly() throws Exception {
+            // Given a trace with base64 encoded attachments in its input
+            String base64Png = AttachmentPayloadUtilsTest.createLargePngBase64();
+            String base64Gif = AttachmentPayloadUtilsTest.createLargeGifBase64();
+
+            String originalInputJson = String.format(
+                    "{\"message\": \"Images attached:\", " +
+                            "\"png_data\": \"%s\", " +
+                            "\"gif_data\": \"%s\"}",
+                    base64Png, base64Gif);
+
+            var trace = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(DEFAULT_PROJECT)
+                    .input(JsonUtils.readTree(originalInputJson))
+                    .output(JsonUtils.readTree("{\"result\": \"processed\"}"))
+                    .metadata(JsonUtils.readTree("{}"))
+                    .build();
+
+            // When creating the trace
+            UUID traceId = traceResourceClient.createTrace(trace, API_KEY, TEST_WORKSPACE);
+            assertThat(traceId).isNotNull();
+
+            // Wait for async attachment stripping - verify the base64 data is no longer in the payload
+            // (it's been replaced with attachment references)
+            Awaitility.await()
+                    .pollInterval(1, TimeUnit.SECONDS)
+                    .atMost(30, TimeUnit.SECONDS)
+                    .untilAsserted(() -> {
+                        Trace retrievedTrace = traceResourceClient.getById(traceId, TEST_WORKSPACE, API_KEY, true);
+                        assertThat(retrievedTrace).isNotNull();
+
+                        String inputString = retrievedTrace.input().toString();
+                        // The key indicator: the original base64 data should be gone
+                        assertThat(inputString).doesNotContain(base64Png);
+                        assertThat(inputString).doesNotContain(base64Gif);
+                        // And replaced with references (this is secondary - main check is data is gone)
+                        assertThat(inputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.png\\]");
+                        assertThat(inputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.gif\\]");
+                    });
+
+            // Verify exactly 2 attachments were created (no duplicates)
+            var projectId = projectResourceClient.getByName(DEFAULT_PROJECT, API_KEY, TEST_WORKSPACE).id();
+            String baseUrl = Base64.getUrlEncoder().encodeToString(baseURI.getBytes());
+
+            var attachmentPage = attachmentResourceClient.attachmentList(
+                    projectId,
+                    EntityType.TRACE,
+                    traceId,
+                    baseUrl,
+                    API_KEY,
+                    TEST_WORKSPACE,
+                    200);
+
+            assertThat(attachmentPage).isNotNull();
+            assertThat(attachmentPage.content()).hasSize(2); // Should have exactly 2, not duplicates
+
+            // Test 1: Fetch with strip_attachments=true - should show references
+            Trace truncatedTrace = traceResourceClient.getById(traceId, TEST_WORKSPACE, API_KEY, true);
+            assertThat(truncatedTrace).isNotNull();
+
+            JsonNode truncatedInput = truncatedTrace.input();
+            assertThat(truncatedInput).isNotNull();
+            String truncatedInputString = truncatedInput.toString();
+
+            // Verify the base64 data is replaced by attachment references (with timestamps)
+            assertThat(truncatedInputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.png\\]");
+            assertThat(truncatedInputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.gif\\]");
+            assertThat(truncatedInputString).doesNotContain(base64Png);
+            assertThat(truncatedInputString).doesNotContain(base64Gif);
+
+            // Test 2: Fetch with truncate=false - should show original base64 data
+            Trace fullTrace = traceResourceClient.getById(traceId, TEST_WORKSPACE, API_KEY, false);
+            assertThat(fullTrace).isNotNull();
+
+            JsonNode fullInput = fullTrace.input();
+            assertThat(fullInput).isNotNull();
+            String fullInputString = fullInput.toString();
+
+            // Verify the base64 data is restored (whitespace formatting may differ due to Jackson read/write)
+            assertThat(fullInputString).contains(base64Png);
+            assertThat(fullInputString).contains(base64Gif);
+            assertThat(fullInputString).contains("Images attached:");
+            // Should not contain attachment references
+            assertThat(fullInputString).doesNotContainPattern("\\[input-attachment-\\d+-\\d+\\.png\\]");
+            assertThat(fullInputString).doesNotContainPattern("\\[input-attachment-\\d+-\\d+\\.gif\\]");
+        }
+
     }
 
     @Nested
@@ -7714,6 +7903,166 @@ class TracesResourceTest {
                     assertThat(actualError).isEqualTo(expectedError);
                 } else {
                     assertThat(actualResponse.getStatus()).isEqualTo(HttpStatus.SC_NO_CONTENT);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("batch create traces with base64 attachments, then attachments are stripped and stored")
+        void batchCreate__whenTracesContainBase64Attachments__thenAttachmentsAreStrippedAndStored() throws Exception {
+            // Given multiple traces with base64 encoded attachments in their inputs and outputs
+            String base64Png = AttachmentPayloadUtilsTest.createLargePngBase64();
+            String base64Gif = AttachmentPayloadUtilsTest.createLargeGifBase64();
+            String base64Pdf = AttachmentPayloadUtilsTest.createLargePdfBase64();
+
+            // Create first trace with PNG in input and GIF in output
+            String inputJson1 = String.format(
+                    "{\"message\": \"First trace with PNG\", " +
+                            "\"image_data\": \"%s\", " +
+                            "\"user_id\": \"user123\", " +
+                            "\"request_type\": \"image_analysis\"}",
+                    base64Png);
+
+            String outputJson1 = String.format(
+                    "{\"result\": \"Analysis complete\", " +
+                            "\"chart_data\": \"%s\", " +
+                            "\"confidence\": 0.95}",
+                    base64Gif);
+
+            // Create second trace with PDF in input and PNG in metadata
+            String inputJson2 = String.format(
+                    "{\"message\": \"Second trace with PDF\", " +
+                            "\"document_data\": \"%s\", " +
+                            "\"user_id\": \"user456\", " +
+                            "\"request_type\": \"document_processing\"}",
+                    base64Pdf);
+
+            String metadataJson2 = String.format(
+                    "{\"processed_image\": \"%s\", " +
+                            "\"processing_time\": 1250, " +
+                            "\"model_version\": \"v2.1\"}",
+                    base64Png);
+
+            // Create third trace with multiple attachments in different fields
+            String inputJson3 = String.format(
+                    "{\"message\": \"Third trace with multiple attachments\", " +
+                            "\"primary_image\": \"%s\", " +
+                            "\"secondary_document\": \"%s\", " +
+                            "\"user_id\": \"user789\", " +
+                            "\"batch_id\": \"batch_001\"}",
+                    base64Gif, base64Pdf);
+
+            var traces = List.of(
+                    factory.manufacturePojo(Trace.class).toBuilder()
+                            .projectName(DEFAULT_PROJECT)
+                            .input(JsonUtils.readTree(inputJson1))
+                            .output(JsonUtils.readTree(outputJson1))
+                            .metadata(JsonUtils.readTree("{}"))
+                            .build(),
+                    factory.manufacturePojo(Trace.class).toBuilder()
+                            .projectName(DEFAULT_PROJECT)
+                            .input(JsonUtils.readTree(inputJson2))
+                            .output(JsonUtils.readTree("{\"result\": \"Document processed successfully\"}"))
+                            .metadata(JsonUtils.readTree(metadataJson2))
+                            .build(),
+                    factory.manufacturePojo(Trace.class).toBuilder()
+                            .projectName(DEFAULT_PROJECT)
+                            .input(JsonUtils.readTree(inputJson3))
+                            .output(JsonUtils.readTree("{\"result\": \"Multi-attachment processing complete\"}"))
+                            .metadata(JsonUtils.readTree("{}"))
+                            .build());
+
+            // When batch creating the traces
+            traceResourceClient.batchCreateTraces(traces, API_KEY, TEST_WORKSPACE);
+
+            // Then all traces should have attachments stripped and replaced with references
+            // Wait for async processing and attachment stripping
+            var projectId = projectResourceClient.getByName(DEFAULT_PROJECT, API_KEY, TEST_WORKSPACE).id();
+
+            // Use strip_attachments=true to get attachment references instead of re-injected full base64 data
+            Awaitility.await().pollInterval(500, TimeUnit.MILLISECONDS).untilAsserted(() -> {
+                // Ensure all traces can be retrieved successfully before proceeding with assertions
+                for (var originalTrace : traces) {
+                    Trace retrievedTrace = traceResourceClient.getById(originalTrace.id(), TEST_WORKSPACE, API_KEY,
+                            true);
+                    assertThat(retrievedTrace).isNotNull();
+                }
+            });
+            String baseUrl = Base64.getUrlEncoder().encodeToString(baseURI.getBytes());
+
+            // Verify each trace has its attachments processed
+            for (int i = 0; i < traces.size(); i++) {
+                var originalTrace = traces.get(i);
+                var retrievedTrace = traceResourceClient.getById(originalTrace.id(), TEST_WORKSPACE, API_KEY, true);
+                assertThat(retrievedTrace).isNotNull();
+
+                // Verify original base64 data is not present in any field
+                String inputString = retrievedTrace.input().toString();
+                String outputString = retrievedTrace.output().toString();
+                String metadataString = retrievedTrace.metadata().toString();
+
+                assertThat(inputString).doesNotContain(base64Png);
+                assertThat(inputString).doesNotContain(base64Gif);
+                assertThat(inputString).doesNotContain(base64Pdf);
+
+                assertThat(outputString).doesNotContain(base64Png);
+                assertThat(outputString).doesNotContain(base64Gif);
+                assertThat(outputString).doesNotContain(base64Pdf);
+
+                assertThat(metadataString).doesNotContain(base64Png);
+                assertThat(metadataString).doesNotContain(base64Gif);
+                assertThat(metadataString).doesNotContain(base64Pdf);
+
+                // Verify attachment references are present based on trace content (bracketed, with context prefix and timestamp)
+                switch (i) {
+                    case 0 : // First trace: PNG in input, GIF in output
+                        assertThat(inputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.png\\]");
+                        assertThat(outputString).containsPattern("\\[output-attachment-\\d+-\\d+\\.gif\\]");
+                        break;
+                    case 1 : // Second trace: PDF in input, PNG in metadata
+                        assertThat(inputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.pdf\\]");
+                        assertThat(metadataString).containsPattern("\\[metadata-attachment-\\d+-\\d+\\.png\\]");
+                        break;
+                    case 2 : // Third trace: GIF and PDF in input
+                        assertThat(inputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.gif\\]");
+                        assertThat(inputString).containsPattern("\\[input-attachment-\\d+-\\d+\\.pdf\\]");
+                        break;
+                }
+
+                // Verify attachments are stored and can be listed
+                var attachmentPage = attachmentResourceClient.attachmentList(
+                        projectId,
+                        EntityType.TRACE,
+                        originalTrace.id(),
+                        baseUrl,
+                        API_KEY,
+                        TEST_WORKSPACE,
+                        200);
+
+                assertThat(attachmentPage).isNotNull();
+                assertThat(attachmentPage.content()).isNotEmpty();
+
+                var attachmentNames = attachmentPage.content().stream()
+                        .map(attachment -> attachment.fileName())
+                        .toList();
+
+                // Verify correct number of attachments based on trace content
+                switch (i) {
+                    case 0 : // First trace should have 2 attachments (PNG + GIF)
+                        assertThat(attachmentPage.content()).hasSize(2);
+                        assertThat(attachmentNames).anyMatch(name -> name.matches("input-attachment-1-\\d+\\.png"));
+                        assertThat(attachmentNames).anyMatch(name -> name.matches("output-attachment-1-\\d+\\.gif"));
+                        break;
+                    case 1 : // Second trace should have 2 attachments (PDF + PNG)
+                        assertThat(attachmentPage.content()).hasSize(2);
+                        assertThat(attachmentNames).anyMatch(name -> name.matches("input-attachment-1-\\d+\\.pdf"));
+                        assertThat(attachmentNames).anyMatch(name -> name.matches("metadata-attachment-1-\\d+\\.png"));
+                        break;
+                    case 2 : // Third trace should have 2 attachments (GIF + PDF)
+                        assertThat(attachmentPage.content()).hasSize(2);
+                        assertThat(attachmentNames).anyMatch(name -> name.matches("input-attachment-1-\\d+\\.gif"));
+                        assertThat(attachmentNames).anyMatch(name -> name.matches("input-attachment-2-\\d+\\.pdf"));
+                        break;
                 }
             }
         }
@@ -8490,6 +8839,143 @@ class TracesResourceTest {
                             traceUpdate.endTime()))
                     .build();
             getAndAssert(updatedTrace, projectId, API_KEY, TEST_WORKSPACE);
+        }
+
+        @Test
+        @DisplayName("when updating trace with different attachments, then old attachments are deleted and new ones are stored")
+        void update__whenUpdatingTraceWithDifferentAttachments__thenOldAttachmentsAreDeletedAndNewOnesAreStored()
+                throws Exception {
+            // Step 1: Create a trace with 3 JPG attachments
+            String base64Jpg1 = AttachmentPayloadUtilsTest.createLargeJpegBase64();
+            String base64Jpg2 = AttachmentPayloadUtilsTest.createLargeJpegBase64();
+            String base64Jpg3 = AttachmentPayloadUtilsTest.createLargeJpegBase64();
+
+            String originalInputJson = String.format(
+                    "{\"message\": \"Original trace with 3 JPG images\", " +
+                            "\"image1\": \"%s\", " +
+                            "\"image2\": \"%s\", " +
+                            "\"image3\": \"%s\", " +
+                            "\"user_id\": \"user123\", " +
+                            "\"operation\": \"image_processing\"}",
+                    base64Jpg1, base64Jpg2, base64Jpg3);
+
+            var originalTrace = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(DEFAULT_PROJECT)
+                    .input(JsonUtils.readTree(originalInputJson))
+                    .output(JsonUtils.readTree("{\"result\": \"processed 3 images\"}"))
+                    .metadata(JsonUtils.readTree("{\"format\": \"jpg\", \"count\": 3}"))
+                    .build();
+
+            // Create the trace
+            UUID traceId = traceResourceClient.createTrace(originalTrace, API_KEY, TEST_WORKSPACE);
+            assertThat(traceId).isNotNull();
+
+            // Wait for async processing and attachment stripping
+            Awaitility.await().pollInterval(500, TimeUnit.MILLISECONDS).untilAsserted(() -> {
+                Trace retrievedTrace = traceResourceClient.getById(traceId, TEST_WORKSPACE, API_KEY, true);
+                assertThat(retrievedTrace).isNotNull();
+                // Ensure the trace is fully processed
+                String inputString = retrievedTrace.input().toString();
+                assertThat(inputString).doesNotContain(base64Jpg1);
+                assertThat(inputString).doesNotContain(base64Jpg2);
+                assertThat(inputString).doesNotContain(base64Jpg3);
+            });
+
+            var projectId = projectResourceClient.getByName(DEFAULT_PROJECT, API_KEY, TEST_WORKSPACE).id();
+            String baseUrl = Base64.getUrlEncoder().encodeToString(baseURI.getBytes());
+
+            // Step 2: Verify we have 3 JPG attachments initially
+            var initialAttachmentPage = attachmentResourceClient.attachmentList(
+                    projectId,
+                    EntityType.TRACE,
+                    traceId,
+                    baseUrl,
+                    API_KEY,
+                    TEST_WORKSPACE,
+                    200);
+
+            assertThat(initialAttachmentPage).isNotNull();
+            assertThat(initialAttachmentPage.content()).hasSize(3);
+
+            // Verify all initial attachments are JPEGs
+            var initialAttachmentNames = initialAttachmentPage.content().stream()
+                    .map(attachment -> attachment.fileName())
+                    .toList();
+            assertThat(initialAttachmentNames).allSatisfy(name -> assertThat(name).contains(".jpg"));
+
+            // Step 3: Update the trace with 2 PNG attachments (different type and count)
+            String base64Png1 = AttachmentPayloadUtilsTest.createLargePngBase64();
+            String base64Png2 = AttachmentPayloadUtilsTest.createLargePngBase64();
+
+            String updatedInputJson = String.format(
+                    "{\"message\": \"Updated trace with 2 PNG images\", " +
+                            "\"png_image1\": \"%s\", " +
+                            "\"png_image2\": \"%s\", " +
+                            "\"user_id\": \"user123\", " +
+                            "\"operation\": \"png_processing\"}",
+                    base64Png1, base64Png2);
+
+            var traceUpdate = TraceUpdate.builder()
+                    .projectName(DEFAULT_PROJECT)
+                    .input(JsonUtils.readTree(updatedInputJson))
+                    .output(JsonUtils.readTree("{\"result\": \"processed 2 PNG images\"}"))
+                    .metadata(JsonUtils.readTree("{\"format\": \"png\", \"count\": 2}"))
+                    .build();
+
+            // Perform the update
+            traceResourceClient.updateTrace(traceId, traceUpdate, API_KEY, TEST_WORKSPACE);
+
+            // Wait for async processing and attachment stripping for the update
+            // Also wait for ClickHouse ReplicatedReplacingMergeTree to merge the rows
+            Awaitility.await()
+                    .pollInterval(500, TimeUnit.MILLISECONDS)
+                    .atMost(30, TimeUnit.SECONDS)
+                    .untilAsserted(() -> {
+                        Trace updatedTrace = traceResourceClient.getById(traceId, TEST_WORKSPACE, API_KEY, true);
+                        assertThat(updatedTrace).isNotNull();
+
+                        String updatedInputString = updatedTrace.input().toString();
+
+                        // First, check for the new message to confirm ClickHouse merge completed
+                        assertThat(updatedInputString).contains("Updated trace with 2 PNG images");
+
+                        // Verify original JPG base64 data is not present
+                        assertThat(updatedInputString).doesNotContain(base64Jpg1);
+                        assertThat(updatedInputString).doesNotContain(base64Jpg2);
+                        assertThat(updatedInputString).doesNotContain(base64Jpg3);
+
+                        // Verify new PNG base64 data is not present (should be replaced by references)
+                        assertThat(updatedInputString).doesNotContain(base64Png1);
+                        assertThat(updatedInputString).doesNotContain(base64Png2);
+
+                        // Verify PNG attachment references are present (with timestamps)
+                        assertThat(updatedInputString).containsPattern("input-attachment-1-\\d+\\.png");
+                        assertThat(updatedInputString).containsPattern("input-attachment-2-\\d+\\.png");
+                    });
+
+            // Step 4: Verify we now have 2 PNG attachments (old JPGs should be deleted)
+            var finalAttachmentPage = attachmentResourceClient.attachmentList(
+                    projectId,
+                    EntityType.TRACE,
+                    traceId,
+                    baseUrl,
+                    API_KEY,
+                    TEST_WORKSPACE,
+                    200);
+
+            assertThat(finalAttachmentPage).isNotNull();
+            assertThat(finalAttachmentPage.content()).hasSize(2);
+
+            // Verify all final attachments are PNGs
+            var finalAttachmentNames = finalAttachmentPage.content().stream()
+                    .map(attachment -> attachment.fileName())
+                    .toList();
+            assertThat(finalAttachmentNames).allSatisfy(name -> assertThat(name).contains(".png"));
+
+            // Step 5: Verify the updated trace exists and was updated
+            Trace finalTrace = traceResourceClient.getById(traceId, TEST_WORKSPACE, API_KEY);
+            assertThat(finalTrace).isNotNull();
+            assertThat(finalTrace.id()).isEqualTo(traceId);
         }
     }
 
@@ -9570,6 +10056,58 @@ class TracesResourceTest {
             var expectedThreads = getExpectedThreads(traces, projectId, threadId, spans, TraceThreadStatus.ACTIVE);
 
             TraceAssertions.assertThreads(expectedThreads, List.of(actualThread));
+        }
+
+        @Test
+        @DisplayName("when trace thread is retrieved with truncate parameter, then messages are truncated accordingly")
+        void getTraceThread__whenTruncateParameter__thenMessagesAreTruncatedAccordingly() {
+
+            var threadId = UUID.randomUUID().toString();
+            var projectName = UUID.randomUUID().toString();
+
+            // Create a long message that exceeds the truncation threshold of 10001 characters
+            var longMessage = "x".repeat(15000);
+            var longInput = "{\"content\": \"" + longMessage + "\"}";
+            var longOutput = "{\"result\": \"" + longMessage + "\"}";
+
+            var trace1 = createTrace().toBuilder()
+                    .threadId(threadId)
+                    .projectName(projectName)
+                    .input(JsonUtils.getJsonNodeFromString(longInput))
+                    .build();
+
+            var trace2 = createTrace().toBuilder()
+                    .threadId(threadId)
+                    .projectName(projectName)
+                    .output(JsonUtils.getJsonNodeFromString(longOutput))
+                    .build();
+
+            traceResourceClient.batchCreateTraces(List.of(trace1, trace2), API_KEY, TEST_WORKSPACE);
+
+            var projectId = getProjectId(projectName, TEST_WORKSPACE, API_KEY);
+
+            // Test with truncate=false (default behavior) - should return full messages
+            var threadWithoutTruncate = traceResourceClient.getTraceThread(threadId, projectId, false, API_KEY,
+                    TEST_WORKSPACE);
+
+            assertThat(threadWithoutTruncate.firstMessage()).isNotNull();
+            assertThat(threadWithoutTruncate.lastMessage()).isNotNull();
+            assertThat(threadWithoutTruncate.firstMessage().toString()).contains(longMessage);
+            assertThat(threadWithoutTruncate.lastMessage().toString()).contains(longMessage);
+
+            // Test with truncate=true - should return truncated messages
+            var threadWithTruncate = traceResourceClient.getTraceThread(threadId, projectId, true, API_KEY,
+                    TEST_WORKSPACE);
+
+            assertThat(threadWithTruncate.firstMessage()).isNotNull();
+            assertThat(threadWithTruncate.lastMessage()).isNotNull();
+            // Truncated messages should be significantly shorter than the original
+            assertThat(threadWithTruncate.firstMessage().toString().length()).isLessThan(longInput.length());
+            assertThat(threadWithTruncate.lastMessage().toString().length()).isLessThan(longOutput.length());
+            // Truncated messages should be around 10001 characters (the threshold) plus some JSON formatting overhead
+            // Allow up to 10% overhead for JSON serialization
+            assertThat(threadWithTruncate.firstMessage().toString().length()).isLessThan(11000);
+            assertThat(threadWithTruncate.lastMessage().toString().length()).isLessThan(11000);
         }
 
         @Test

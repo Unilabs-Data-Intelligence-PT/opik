@@ -1,7 +1,7 @@
 package com.comet.opik.api.resources.v1.events;
 
+import com.comet.opik.api.AlertEventType;
 import com.comet.opik.api.events.webhooks.WebhookEvent;
-import com.comet.opik.api.events.webhooks.WebhookEventTypes;
 import com.comet.opik.api.resources.v1.events.webhooks.WebhookHttpClient;
 import com.comet.opik.infrastructure.WebhookConfig;
 import com.comet.opik.infrastructure.log.UserFacingLoggingFactory;
@@ -32,6 +32,10 @@ import static org.mockito.Mockito.mockStatic;
 
 @ExtendWith(MockitoExtension.class)
 class WebhookSubscriberTest {
+
+    public static final int MAX_RETRIES = 4;
+    public static final String WORKSPACE_ID = UUID.randomUUID().toString();
+    public static final String USER_NAME = UUID.randomUUID().toString();
 
     @Mock
     private RedissonReactiveClient redisson;
@@ -151,7 +155,7 @@ class WebhookSubscriberTest {
         // Given
         var webhookUrl = "http://localhost:" + wireMockServer.port() + "/webhook";
         var webhookEvent = createWebhookEvent(webhookUrl).toBuilder()
-                .maxRetries(3)
+                .maxRetries(MAX_RETRIES)
                 .build();
 
         wireMockServer.stubFor(post(urlEqualTo("/webhook"))
@@ -168,7 +172,7 @@ class WebhookSubscriberTest {
     private WebhookConfig createWebhookConfig() {
         var config = new WebhookConfig();
         config.setEnabled(true);
-        config.setMaxRetries(3);
+        config.setMaxRetries(MAX_RETRIES);
         config.setInitialRetryDelay(Duration.milliseconds(100));
         config.setMaxRetryDelay(Duration.seconds(1));
         config.setRequestTimeout(Duration.seconds(5));
@@ -181,13 +185,13 @@ class WebhookSubscriberTest {
     private WebhookEvent<?> createWebhookEvent(String url) {
         return WebhookEvent.builder()
                 .id("webhook-" + System.currentTimeMillis())
-                .eventType(WebhookEventTypes.TRACE_CREATED)
+                .eventType(AlertEventType.PROMPT_CREATED)
                 .alertId(UUID.randomUUID())
-                .workspaceId("workspace-123")
+                .workspaceId(WORKSPACE_ID)
                 .url(url)
                 .payload(Map.of("message", "test payload", "timestamp", Instant.now().toString()))
                 .createdAt(Instant.now())
-                .maxRetries(3)
+                .maxRetries(MAX_RETRIES)
                 .headers(Map.of())
                 .build();
     }

@@ -19,21 +19,22 @@ import {
   UserPen,
 } from "lucide-react";
 
-import useAnnotationQueuesList from "@/api/annotation-queues/useAnnotationQueuesList";
 import useRulesList from "@/api/automations/useRulesList";
 import useDatasetsList from "@/api/datasets/useDatasetsList";
 import useExperimentsList from "@/api/datasets/useExperimentsList";
 import useOptimizationsList from "@/api/optimizations/useOptimizationsList";
 import useProjectsList from "@/api/projects/useProjectsList";
 import usePromptsList from "@/api/prompts/usePromptsList";
-import Logo from "@/components/layout/Logo/Logo";
+import useAnnotationQueuesList from "@/api/annotation-queues/useAnnotationQueuesList";
+import { useOpenQuickStartDialog } from "@/components/pages-shared/onboarding/QuickstartDialog/QuickstartDialog";
 import GitHubStarListItem from "@/components/layout/SideBar/GitHubStarListItem/GitHubStarListItem";
+
 import SidebarMenuItem, {
   MENU_ITEM_TYPE,
   MenuItem,
   MenuItemGroup,
 } from "@/components/layout/SideBar/MenuItem/SidebarMenuItem";
-import QuickstartDialog from "@/components/pages-shared/onboarding/QuickstartDialog/QuickstartDialog";
+import Logo from "@/components/layout/Logo/Logo";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { buildDocsUrl, cn } from "@/lib/utils";
@@ -167,11 +168,9 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
   expanded,
   setExpanded,
 }) => {
-  const {
-    activeWorkspaceName: workspaceName,
-    quickstartOpened,
-    setQuickstartOpened,
-  } = useAppStore();
+  const { open: openQuickstart } = useOpenQuickStartDialog();
+
+  const { activeWorkspaceName: workspaceName } = useAppStore();
   const LogoComponent = usePluginsStore((state) => state.Logo);
   const SidebarInviteDevButton = usePluginsStore(
     (state) => state.SidebarInviteDevButton,
@@ -302,7 +301,7 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
         type: MENU_ITEM_TYPE.button,
         icon: GraduationCap,
         label: "Quickstart guide",
-        onClick: () => setQuickstartOpened(true),
+        onClick: openQuickstart,
       },
     ]);
 
@@ -378,8 +377,6 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
           </div>
         </div>
       </aside>
-
-      <QuickstartDialog open={quickstartOpened} setOpen={setQuickstartOpened} />
     </>
   );
 };

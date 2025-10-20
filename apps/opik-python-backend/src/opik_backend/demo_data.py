@@ -102727,52 +102727,6 @@ demo_dataset_items = {
             },
             "dataset_id": "0198c909-9294-7d3a-a3c2-7511f46a9ef0",
             "source": "sdk"
-        },
-        {
-            "id": "0198e38c-ccb6-7d4d-87cc-590b4ebc63b7",
-            "data": {
-                "input": '{"thread_id":"b207c5e9-8eca-4049-a69e-2d9a3698ff49","messages":[{"role":"user","content":"Who is our contact at green leaf tech?"},{"role":"assistant","content":"Your contact at Greenleaf Tech is Jessica Lau, the Head of IT Procurement. You can reach her at jessica.lau@greenleaftech.com."},{"role":"user","content":"What is her status?"},{"role":"assistant","content":"Jessica Lau is currently identified as a high-value prospect."},{"role":"user","content":"Can you tell me more about the company?"}],"query":"Can you tell me more about the company?"}',
-                "expected_output": '{"tool":"contact","tool_response":"Greenleaf Tech is a company operating in the Renewable Energy Tech industry. Currently, they are at the proposal stage with an estimated deal size of $85,000. Jessica Lau, the Head of IT Procurement, is the primary contact and is considered a high-value prospect.\\n\\nThe lead was generated from a webinar sign-up on March 15, 2025. The last contact was made on May 12, 2025. Engagement metrics indicate that Jessica has opened 6 emails out of 7 sent, with an average email open time of 2 hours. There have been 3 responses to outreach efforts, and 5 outreach attempts have been made. Jessica attended demos on April 4 and May 9, 2025, and downloaded a document titled \\"Energy Grid Optimization\\" on April 17, 2025.\\n\\nInternal notes suggest that she is interested in predictive maintenance features, has decision-making authority, but is awaiting CFO sign-off. They plan to implement solutions starting in Q3, beginning in July.","response":"Certainly! \\n\\nGreenleaf Tech is a company operating in the Renewable Energy Tech sector. They are currently in the proposal stage for a project with an estimated deal size of $85,000. The primary contact is Jessica Lau, the Head of IT Procurement, who is considered a high-value prospect due to her decision-making authority.\\n\\nThe lead was generated from a webinar sign-up on March 15, 2025. Since then, there has been significant engagement, with Jessica opening 6 out of 7 emails sent to her, typically spending about 2 hours reviewing them. She has responded to outreach efforts 3 times, and there have been a total of 5 attempts to reach her. Notably, Jessica attended product demos on April 4 and May 9, 2025, and showed interest by downloading a document titled \\"Energy Grid Optimization\\" on April 17, 2025.\\n\\nCurrently, Jessica is particularly interested in predictive maintenance features. However, she is awaiting sign-off from the CFO before proceeding. Greenleaf Tech plans to implement their solutions starting in Q3, with a target beginning in July."}'
-            },
-            "dataset_id": "0198c909-9294-7d3a-a3c2-7511f46a9ef0",
-            "source": "trace"
-        },
-        {
-            "id": "0198e38c-ccb6-7d4d-87cc-590b4ebc63b8",
-            "data": {
-                "input": '{"thread_id":"b207c5e9-8eca-4049-a69e-2d9a3698ff49","messages":[{"role":"user","content":"Who is our contact at green leaf tech?"},{"role":"assistant","content":"Your contact at Greenleaf Tech is Jessica Lau, the Head of IT Procurement. You can reach her at jessica.lau@greenleaftech.com."},{"role":"user","content":"What is her status?"}],"query":"What is her status?"}',
-                "expected_output": '{"tool":"contact","tool_response":"Jessica Lau\'s status is \\"High-value prospect.\\"","response":"Jessica Lau is currently identified as a high-value prospect."}'
-            },
-            "dataset_id": "0198c909-9294-7d3a-a3c2-7511f46a9ef0",
-            "source": "trace"
-        },
-        {
-            "id": "0198e38c-ccb6-7d4d-87cc-590b4ebc63b9",
-            "data": {
-                "input": '{"thread_id":"b207c5e9-8eca-4049-a69e-2d9a3698ff49","messages":[{"role":"user","content":"Who is our contact at green leaf tech?"}],"query":"Who is our contact at green leaf tech?"}',
-                "expected_output": '{"tool":"contact","tool_response":"Your contact at Greenleaf Tech is Jessica Lau, who is the Head of IT Procurement. You can reach her at jessica.lau@greenleaftech.com.","response":"Your contact at Greenleaf Tech is Jessica Lau, the Head of IT Procurement. You can reach her at jessica.lau@greenleaftech.com."}'
-            },
-            "dataset_id": "0198c909-9294-7d3a-a3c2-7511f46a9ef0",
-            "source": "trace"
-        },
-        {
-            "id": "0198e38c-ccb6-7d4d-87cc-590b4ebc63ba",
-            "data": {
-                "input": '{"thread_id":"3a3fbec7-b3bd-465a-8bd1-5319b865e39e","messages":[{"role":"user","content":"What is the annual revenue from NovaHealth Systems?"},{"role":"assistant","content":"The annual revenue from NovaHealth Systems is $12 million."},{"role":"user","content":"What is our deal history with them?"},{"role":"assistant","content":"Certainly! Here’s a summary of our deal history with NovaHealth Systems:\\n\\n1. **Deal ID:** DH-1007  \\n   - **Closed Date:** November 20, 2024  \\n   - **Value:** $45,000  \\n   - **Product:** EHR Integration Suite  \\n   - **Stage:** Closed Won  \\n   - **Sales Cycle Duration:** 38 days  \\n\\n2. **Deal ID:** DH-1018  \\n   - **Closed Date:** May 6, 2025  \\n   - **Value:** $67,000  \\n   - **Product:** AI Diagnostics Module  \\n   - **Stage:** Closed Won  \\n   - **Sales Cycle Duration:** 54 days  \\n\\n**Overall Performance:**  \\n- **Total Closed Value in the Last 12 Months:** $112,000  \\n- **Average Sales Cycle Duration:** 46 days  \\n- **Close Rate:** 66%  \\n- **Average Deal Size:** $56,000  \\n\\nIf you have any further questions or need more details, feel free to ask!"},{"role":"user","content":"Are there any deals in the pipeline?"},{"role":"assistant","content":"Yes, there is one deal currently in the pipeline with NovaHealth Systems. Here are the details:\\n\\n- **Deal ID:** DH-1029  \\n- **Product:** Mobile Patient Portal  \\n- **Stage:** Negotiation  \\n- **Expected Close Date:** June 28, 2025  \\n- **Expected Value:** $85,000  \\n- **Sales Cycle Duration:** 29 days so far  \\n\\nIf you need any more information, feel free to ask!"},{"role":"user","content":"When is the last time they were contacted?"},{"role":"assistant","content":"The last contact with them was on May 12, 2025."},{"role":"user","content":"What were the details of the conversation?"}],"query":"What were the details of the conversation?"}',
-                "expected_output": '{"tool":"contact","tool_response":"**Details of the Conversation with Jessica Lau:**\\n\\n- **Date:** May 12, 2025  \\n- **Contact Person:** Jessica Lau, Head of IT Procurement  \\n- **Company:** Greenleaf Tech  \\n- **Deal Stage:** Proposal Sent  \\n- **Deal Size Estimate:** $85,000  \\n\\n**Key Points Discussed:**\\n- Jessica expressed interest in predictive maintenance features.\\n- She mentioned that she has decision authority but is awaiting CFO sign-off.\\n- There is a need to implement the solution by Q3, starting in July.\\n\\n**Engagement Metrics:**\\n- Emails Opened: 6  \\n- Emails Sent: 7  \\n- Outreach Responses: 3  \\n- Demos Attended: 2 (April 4, 2025, and May 9, 2025)  \\n- Downloads: 1 (Energy Grid Optimization on April 17, 2025)","response":"Here are the details of your conversation with Jessica Lau, the Head of IT Procurement at Greenleaf Tech:\\n\\n- **Date of Conversation:** May 12, 2025  \\n- **Current Deal Stage:** Proposal Sent  \\n- **Estimated Deal Size:** $85,000  \\n\\n**Key Discussion Points:**\\n- Jessica showed a keen interest in the predictive maintenance features of our solution.\\n- She confirmed that she has the authority to make decisions but is currently waiting for sign-off from the CFO.\\n- There is a requirement to implement the solution by Q3, with a start date in July.\\n\\n**Engagement Metrics:**\\n- Total Emails Opened: 6  \\n- Total Emails Sent: 7  \\n- Outreach Responses Received: 3  \\n- Demos Attended: 2 (on April 4, 2025, and May 9, 2025)  \\n- Downloads: 1 (Energy Grid Optimization document on April 17, 2025)\\n\\nIf you need any further information or assistance, feel free to ask!"}'
-            },
-            "dataset_id": "0198c909-9294-7d3a-a3c2-7511f46a9ef0",
-            "source": "trace"
-        },
-        {
-            "id": "0198e777-6b25-7da7-9159-16532d04ca01",
-            "data": {
-                "input": '"<user question>"',
-                "expected_output": '"<expected response>"',
-                "<any additional fields>": '"<any value>"'
-            },
-            "dataset_id": "0198c909-9294-7d3a-a3c2-7511f46a9ef0",
-            "source": "manual"
         }
     ]
 }

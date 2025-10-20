@@ -145,7 +145,7 @@ the more frustrated the user is likely to be.
 
 It can be used to evaluate the user experience during a conversation, like this:
 
-````python
+```python
 from opik.evaluation.metrics import UserFrustrationMetric
 conversation = [
     {
@@ -198,10 +198,11 @@ if result.scoring_failed:
     print(f"Scoring failed: {result.reason}")
 else:
     print(result.value)
-````
+```
 
 Asynchronous scoring is also supported with the `ascore` scoring method.
 
 ## Next steps
 
-Read more about the conversational threads evaluation on the [conversational threads evaluation](/evaluation/evaluate_threads) page.
+- Read more about [conversational threads evaluation](/evaluation/evaluate_threads)
+- Learn how to create [custom conversation metrics](/evaluation/metrics/custom_conversation_metric)

@@ -113,7 +113,7 @@ interface TraceDAO {
 
     Mono<Set<UUID>> getTraceIdsByThreadIds(UUID projectId, List<String> threadIds, Connection connection);
 
-    Mono<TraceThread> findThreadById(UUID projectId, String threadId);
+    Mono<TraceThread> findThreadById(UUID projectId, String threadId, boolean truncate);
 
     Mono<Trace> getPartialById(UUID id);
 
@@ -122,6 +122,8 @@ interface TraceDAO {
     Mono<Long> countTraces(Set<UUID> projectIds);
 
     Flux<TraceThread> threadsSearch(int limit, TraceSearchCriteria criteria);
+
+    Mono<List<TraceThread>> getMinimalThreadInfoByIds(UUID projectId, Set<String> threadId);
 }
 
 @Slf4j
@@ -2090,7 +2092,12 @@ class TraceDAOImpl implements TraceDAO {
     private static final String SELECT_TRACES_THREAD_BY_ID = """
             WITH traces_final AS (
                 SELECT
-                    *
+                    *,
+                    truncated_input,
+                    truncated_output,
+                    input_length,
+                    output_length,
+                    truncation_threshold
                 FROM traces final
                 WHERE workspace_id = :workspace_id
                   AND project_id = :project_id
@@ -2211,7 +2218,7 @@ class TraceDAOImpl implements TraceDAO {
                     name,
                     arrayStringConcat(categories, ', ') AS category_name,
                     IF(length(values) = 1, arrayElement(values, 1), toDecimal64(arrayAvg(values), 9)) AS value,
-                    IF(length(reasons) = 1, arrayElement(reasons, 1), arrayStringConcat(arrayMap(x -> if(x = '', '<no reason>', x), reasons), ', ')) AS reason,
+                    IF(length(reasons) = 1, arrayElement(reasons, 1), arrayStringConcat(arrayMap(x -> if(x = '', '\\<no reason>', x), reasons), ', ')) AS reason,
                     arrayElement(sources, 1) AS source,
                     mapFromArrays(
                         authors,
@@ -2276,8 +2283,10 @@ class TraceDAOImpl implements TraceDAO {
                 t.start_time as start_time,
                 t.end_time as end_time,
                 t.duration as duration,
-                t.first_message as first_message,
-                t.last_message as last_message,
+                <if(truncate)> t.truncated_first_message as first_message <else> t.first_message as first_message<endif>,
+                <if(truncate)> t.truncated_last_message as last_message <else> t.last_message as last_message<endif>,
+                <if(truncate)> t.first_message_length >= t.first_message_truncation_threshold as first_message_truncated <else> false as first_message_truncated <endif>,
+                <if(truncate)> t.last_message_length >= t.last_message_truncation_threshold as last_message_truncated <else> false as last_message_truncated <endif>,
                 t.number_of_messages as number_of_messages,
                 t.total_estimated_cost as total_estimated_cost,
                 t.usage as usage,
@@ -2304,6 +2313,12 @@ class TraceDAOImpl implements TraceDAO {
                        NULL) AS duration,
                     argMin(t.input, t.start_time) as first_message,
                     argMax(t.output, t.end_time) as last_message,
+                    argMin(t.truncated_input, t.start_time) as truncated_first_message,
+                    argMax(t.truncated_output, t.end_time) as truncated_last_message,
+                    argMin(t.input_length, t.start_time) as first_message_length,
+                    argMax(t.output_length, t.end_time) as last_message_length,
+                    argMin(t.truncation_threshold, t.start_time) as first_message_truncation_threshold,
+                    argMax(t.truncation_threshold, t.end_time) as last_message_truncation_threshold,
                     count(DISTINCT t.id) * 2 as number_of_messages,
                     sum(s.total_estimated_cost) as total_estimated_cost,
                     sumMap(s.usage) as usage,
@@ -2326,6 +2341,43 @@ class TraceDAOImpl implements TraceDAO {
             FROM traces
             WHERE workspace_id = :workspace_id
             AND project_id IN :project_ids
+            """;
+
+    private static final String SELECT_MINIMAL_THREAD_INFO_BY_IDS = """
+            SELECT
+                t.id as id,
+                if(LENGTH(CAST(tt.id AS Nullable(String))) > 0, tt.id, '') as thread_model_id,
+                t.workspace_id as workspace_id,
+                t.project_id as project_id,
+                t.created_by as created_by,
+                t.created_at as created_at,
+                tt.status as status
+            FROM (
+                SELECT
+                    inner_t.thread_id as id,
+                    inner_t.project_id as project_id,
+                    inner_t.workspace_id as workspace_id,
+                    argMin(inner_t.created_by, inner_t.created_at)  as created_by,
+                    min(inner_t.created_at) as created_at
+                FROM (
+                    SELECT
+                        thread_id,
+                        workspace_id,
+                        project_id,
+                        created_by,
+                        created_at
+                    FROM traces
+                    WHERE workspace_id = :workspace_id
+                      AND project_id = :project_id
+                      AND thread_id IN :thread_ids
+                    ORDER BY (workspace_id, project_id, id) DESC, last_updated_at DESC
+                    LIMIT 1 BY id
+                ) inner_t
+                GROUP BY inner_t.workspace_id, inner_t.project_id, inner_t.thread_id
+            ) t
+            LEFT JOIN trace_threads tt ON t.workspace_id = tt.workspace_id
+              AND t.project_id = tt.project_id
+              AND t.id = tt.thread_id
             """;
 
     private final @NonNull FilterQueryBuilder filterQueryBuilder;
@@ -3195,6 +3247,39 @@ class TraceDAOImpl implements TraceDAO {
                 .flatMap(Flux::fromIterable);
     }
 
+    @Override
+    public Mono<List<TraceThread>> getMinimalThreadInfoByIds(@NonNull UUID projectId, @NonNull Set<String> threadId) {
+        if (threadId.isEmpty()) {
+            return Mono.just(List.of());
+        }
+
+        return asyncTemplate.nonTransaction(connection -> {
+            var statement = connection.createStatement(SELECT_MINIMAL_THREAD_INFO_BY_IDS)
+                    .bind("project_id", projectId)
+                    .bind("thread_ids", threadId.toArray(String[]::new));
+
+            return makeMonoContextAware(bindWorkspaceIdToMono(statement))
+                    .flatMapMany(this::mapMinimalThreadToDto)
+                    .collectList();
+        });
+
+    }
+
+    private Publisher<TraceThread> mapMinimalThreadToDto(Result result) {
+        return result.map((row, rowMetadata) -> TraceThread.builder()
+                .id(row.get("id", String.class))
+                .projectId(row.get("project_id", UUID.class))
+                .threadModelId(Optional.ofNullable(row.get("thread_model_id", String.class))
+                        .filter(StringUtils::isNotBlank)
+                        .map(UUID::fromString)
+                        .orElse(null))
+                .workspaceId(row.get("workspace_id", String.class))
+                .status(TraceThreadStatus.fromValue(row.get("status", String.class)).orElse(TraceThreadStatus.ACTIVE))
+                .createdBy(row.get("created_by", String.class))
+                .createdAt(row.get("created_at", Instant.class))
+                .build());
+    }
+
     private Publisher<TraceThread> mapThreadToDto(Result result) {
         return result.map((row, rowMetadata) -> TraceThread.builder()
                 .id(row.get("id", String.class))
@@ -3298,9 +3383,12 @@ class TraceDAOImpl implements TraceDAO {
     }
 
     @Override
-    public Mono<TraceThread> findThreadById(@NonNull UUID projectId, @NonNull String threadId) {
+    public Mono<TraceThread> findThreadById(@NonNull UUID projectId, @NonNull String threadId, boolean truncate) {
         return asyncTemplate.nonTransaction(connection -> {
-            var statement = connection.createStatement(SELECT_TRACES_THREAD_BY_ID)
+            ST template = new ST(SELECT_TRACES_THREAD_BY_ID);
+            template.add("truncate", truncate);
+
+            var statement = connection.createStatement(template.render())
                     .bind("project_id", projectId)
                     .bind("thread_id", threadId);
 

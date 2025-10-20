@@ -17,7 +17,9 @@ public enum FilterStrategy {
     EXPERIMENT,
     PROMPT,
     DATASET,
-    ANNOTATION_QUEUE;
+    ANNOTATION_QUEUE,
+    ALERT,
+    AUTOMATION_RULE_EVALUATOR;
 
     public static final String DYNAMIC_FIELD = ":dynamicField%1$d";
 

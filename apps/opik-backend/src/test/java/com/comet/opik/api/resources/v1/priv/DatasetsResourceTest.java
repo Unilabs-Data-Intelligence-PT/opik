@@ -21,7 +21,12 @@ import com.comet.opik.api.FeedbackScoreBatchContainer;
 import com.comet.opik.api.FeedbackScoreItem;
 import com.comet.opik.api.Optimization;
 import com.comet.opik.api.PageColumns;
+import com.comet.opik.api.PercentageValues;
 import com.comet.opik.api.Project;
+import com.comet.opik.api.ProjectStats.AvgValueStat;
+import com.comet.opik.api.ProjectStats.CountValueStat;
+import com.comet.opik.api.ProjectStats.PercentageValueStat;
+import com.comet.opik.api.ProjectStats.ProjectStatItem;
 import com.comet.opik.api.Prompt;
 import com.comet.opik.api.PromptVersion;
 import com.comet.opik.api.ReactServiceErrorResponse;
@@ -57,12 +62,14 @@ import com.comet.opik.api.resources.utils.resources.OptimizationResourceClient;
 import com.comet.opik.api.resources.utils.resources.PromptResourceClient;
 import com.comet.opik.api.resources.utils.resources.SpanResourceClient;
 import com.comet.opik.api.resources.utils.resources.TraceResourceClient;
+import com.comet.opik.api.resources.utils.traces.TraceAssertions;
 import com.comet.opik.api.sorting.Direction;
 import com.comet.opik.api.sorting.SortableFields;
 import com.comet.opik.api.sorting.SortingField;
 import com.comet.opik.domain.DatasetDAO;
 import com.comet.opik.domain.FeedbackScoreMapper;
 import com.comet.opik.domain.SpanType;
+import com.comet.opik.domain.stats.StatsMapper;
 import com.comet.opik.extensions.DropwizardAppExtensionProvider;
 import com.comet.opik.extensions.RegisterApp;
 import com.comet.opik.podam.PodamFactoryUtils;
@@ -6071,5 +6078,648 @@ class DatasetsResourceTest {
         datasets.set(0, datasets.getFirst().toBuilder().visibility(PUBLIC).build());
 
         return datasets;
+    }
+
+    @Nested
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    @DisplayName("Get Dataset Experiment Items Stats")
+    class GetDatasetExperimentItemsStats {
+
+        @Test
+        @DisplayName("Success: Get experiment items stats without filters")
+        void getExperimentItemsStats__happyFlow() {
+            var workspaceName = UUID.randomUUID().toString();
+            var workspaceId = UUID.randomUUID().toString();
+            var apiKey = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var dataset = factory.manufacturePojo(Dataset.class);
+            var datasetId = datasetResourceClient.createDataset(dataset, apiKey, workspaceName);
+
+            var experiment1 = experimentResourceClient.createPartialExperiment()
+                    .datasetId(datasetId)
+                    .build();
+            createAndAssert(experiment1, apiKey, workspaceName);
+
+            var experiment2 = experimentResourceClient.createPartialExperiment()
+                    .datasetId(datasetId)
+                    .build();
+            createAndAssert(experiment2, apiKey, workspaceName);
+
+            var datasetItem1 = factory.manufacturePojo(DatasetItem.class);
+            var datasetItem2 = factory.manufacturePojo(DatasetItem.class);
+
+            datasetResourceClient.createDatasetItems(
+                    DatasetItemBatch.builder()
+                            .items(List.of(datasetItem1, datasetItem2))
+                            .datasetId(datasetId)
+                            .build(),
+                    workspaceName,
+                    apiKey);
+
+            var trace1 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment1.name())
+                    .build();
+            traceResourceClient.createTrace(trace1, apiKey, workspaceName);
+
+            var experimentItem1 = ExperimentItem.builder()
+                    .experimentId(experiment1.id())
+                    .datasetItemId(datasetItem1.id())
+                    .traceId(trace1.id())
+                    .output(JsonUtils.readTree(Map.of("result", "output1")))
+                    .build();
+
+            var trace2 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment2.name())
+                    .build();
+            traceResourceClient.createTrace(trace2, apiKey, workspaceName);
+
+            var experimentItem2 = ExperimentItem.builder()
+                    .experimentId(experiment2.id())
+                    .datasetItemId(datasetItem2.id())
+                    .traceId(trace2.id())
+                    .output(JsonUtils.readTree(Map.of("result", "output2")))
+                    .build();
+
+            var experimentItemsBatch = new ExperimentItemsBatch(Set.of(experimentItem1, experimentItem2));
+
+            DatasetsResourceTest.this.createAndAssert(experimentItemsBatch, apiKey, workspaceName);
+
+            // Generate random feedback scores using PODAM
+            var feedbackScore1 = factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
+                    .id(trace1.id())
+                    .name("accuracy")
+                    .source(ScoreSource.SDK)
+                    .build();
+
+            var feedbackScore2 = factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
+                    .id(trace2.id())
+                    .name("accuracy")
+                    .source(ScoreSource.SDK)
+                    .build();
+
+            var feedbackScores = List.of(feedbackScore1, feedbackScore2);
+            traceResourceClient.feedbackScores(feedbackScores, apiKey, workspaceName);
+
+            // Fetch traces to get actual durations
+            var createdTrace1 = traceResourceClient.getById(trace1.id(), workspaceName, apiKey);
+            var createdTrace2 = traceResourceClient.getById(trace2.id(), workspaceName, apiKey);
+            var traceDurations = List.of(createdTrace1.duration(), createdTrace2.duration())
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            // Calculate expected values from test data
+            var experimentItemsCount = (long) experimentItemsBatch.experimentItems().size();
+            var traceCount = (long) feedbackScores.size(); // One trace per feedback score
+            var expectedAvgValue = feedbackScores.stream()
+                    .map(FeedbackScoreItem::value)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                    .divide(BigDecimal.valueOf(feedbackScores.size()), java.math.RoundingMode.HALF_UP);
+
+            // Calculate duration percentiles from actual trace durations
+            var durationPercentiles = StatsUtils.calculateQuantiles(traceDurations, List.of(0.50, 0.90, 0.99));
+
+            var stats = datasetResourceClient.getDatasetExperimentItemsStats(
+                    datasetId,
+                    List.of(experiment1.id(), experiment2.id()),
+                    apiKey,
+                    workspaceName,
+                    null);
+
+            // Build complete expected stats list from calculated values
+            List<ProjectStatItem<?>> expectedStats = List.of(
+                    new CountValueStat(StatsMapper.EXPERIMENT_ITEMS_COUNT, experimentItemsCount),
+                    new CountValueStat(StatsMapper.TRACE_COUNT, traceCount),
+                    new AvgValueStat(StatsMapper.TOTAL_ESTIMATED_COST, 0.0), // No costs in test data
+                    new PercentageValueStat(StatsMapper.DURATION,
+                            new PercentageValues(
+                                    durationPercentiles.get(0), // p50
+                                    durationPercentiles.get(1), // p90
+                                    durationPercentiles.get(2))), // p99
+                    new AvgValueStat("feedback_scores.accuracy", expectedAvgValue.doubleValue()));
+
+            // Assert the whole ProjectStats object using TraceAssertions
+            TraceAssertions.assertStats(stats.stats(), expectedStats);
+        }
+
+        @Test
+        @DisplayName("Success: Get experiment items stats with output filter")
+        void getExperimentItemsStats__withOutputFilter() {
+            var workspaceName = UUID.randomUUID().toString();
+            var workspaceId = UUID.randomUUID().toString();
+            var apiKey = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var dataset = factory.manufacturePojo(Dataset.class);
+            var datasetId = datasetResourceClient.createDataset(dataset, apiKey, workspaceName);
+
+            var experiment1 = experimentResourceClient.createPartialExperiment()
+                    .datasetId(datasetId)
+                    .build();
+            createAndAssert(experiment1, apiKey, workspaceName);
+
+            var datasetItem1 = factory.manufacturePojo(DatasetItem.class);
+            var datasetItem2 = factory.manufacturePojo(DatasetItem.class);
+
+            datasetResourceClient.createDatasetItems(
+                    DatasetItemBatch.builder()
+                            .items(List.of(datasetItem1, datasetItem2))
+                            .datasetId(datasetId)
+                            .build(),
+                    workspaceName,
+                    apiKey);
+
+            var trace1 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment1.name())
+                    .output(JsonUtils.readTree(Map.of("result", "success")))
+                    .build();
+            traceResourceClient.createTrace(trace1, apiKey, workspaceName);
+
+            var experimentItem1 = ExperimentItem.builder()
+                    .experimentId(experiment1.id())
+                    .datasetItemId(datasetItem1.id())
+                    .traceId(trace1.id())
+                    .build();
+
+            var trace2 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment1.name())
+                    .output(JsonUtils.readTree(Map.of("result", "failure")))
+                    .build();
+            traceResourceClient.createTrace(trace2, apiKey, workspaceName);
+
+            var experimentItem2 = ExperimentItem.builder()
+                    .experimentId(experiment1.id())
+                    .datasetItemId(datasetItem2.id())
+                    .traceId(trace2.id())
+                    .build();
+
+            var experimentItemsBatch = new ExperimentItemsBatch(Set.of(experimentItem1, experimentItem2));
+
+            DatasetsResourceTest.this.createAndAssert(experimentItemsBatch, apiKey, workspaceName);
+
+            // Generate random feedback scores using PODAM
+            var feedbackScore1 = factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
+                    .id(trace1.id())
+                    .name("accuracy")
+                    .source(ScoreSource.SDK)
+                    .build();
+
+            var feedbackScore2 = factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
+                    .id(trace2.id())
+                    .name("accuracy")
+                    .source(ScoreSource.SDK)
+                    .build();
+
+            traceResourceClient.feedbackScores(List.of(feedbackScore1, feedbackScore2), apiKey,
+                    workspaceName);
+
+            // Fetch traces to get actual durations
+            var createdTrace1 = traceResourceClient.getById(trace1.id(), workspaceName, apiKey);
+            var createdTrace2 = traceResourceClient.getById(trace2.id(), workspaceName, apiKey);
+
+            var outputFilter = List.of(ExperimentsComparisonFilter.builder()
+                    .field(ExperimentsComparisonValidKnownField.OUTPUT.getQueryParamField())
+                    .operator(Operator.CONTAINS)
+                    .value("success")
+                    .build());
+
+            // Calculate expected values from test data
+            // Expected: Only trace1 matches filter (output contains "success")
+            var matchingExperimentItems = List.of(experimentItem1); // Only experimentItem1 has trace1 which has "success"
+            var matchingFeedbackScores = List.of(feedbackScore1); // Only feedbackScore1 for trace1
+            var experimentItemsCount = (long) matchingExperimentItems.size();
+            var traceCount = (long) matchingFeedbackScores.size();
+            var expectedAvgValue = matchingFeedbackScores.stream()
+                    .map(FeedbackScoreItem::value)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                    .divide(BigDecimal.valueOf(matchingFeedbackScores.size()), java.math.RoundingMode.HALF_UP);
+
+            // Calculate duration percentiles from trace1 only (trace2 is filtered out)
+            var traceDurations = List.of(createdTrace1.duration())
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .toList();
+            var durationPercentiles = StatsUtils.calculateQuantiles(traceDurations, List.of(0.50, 0.90, 0.99));
+
+            var stats = datasetResourceClient.getDatasetExperimentItemsStats(
+                    datasetId,
+                    List.of(experiment1.id()),
+                    apiKey,
+                    workspaceName,
+                    outputFilter);
+
+            // Assert the whole ProjectStats object - filter matches only trace1
+            assertThat(stats).isNotNull();
+            assertThat(stats.stats()).hasSizeGreaterThanOrEqualTo(4);
+
+            // Verify required stat names are present
+            assertThat(stats.stats())
+                    .extracting(ProjectStatItem::getName)
+                    .contains(StatsMapper.EXPERIMENT_ITEMS_COUNT, StatsMapper.TRACE_COUNT,
+                            StatsMapper.TOTAL_ESTIMATED_COST, StatsMapper.DURATION, "feedback_scores.accuracy");
+
+            // Build complete expected stats list from calculated values
+            List<ProjectStatItem<?>> expectedStats = List.of(
+                    new CountValueStat(StatsMapper.EXPERIMENT_ITEMS_COUNT, experimentItemsCount),
+                    new CountValueStat(StatsMapper.TRACE_COUNT, traceCount),
+                    new AvgValueStat(StatsMapper.TOTAL_ESTIMATED_COST, 0.0), // No costs in test data
+                    new PercentageValueStat(StatsMapper.DURATION,
+                            new PercentageValues(
+                                    durationPercentiles.get(0), // p50
+                                    durationPercentiles.get(1), // p90
+                                    durationPercentiles.get(2))), // p99
+                    new AvgValueStat("feedback_scores.accuracy", expectedAvgValue.doubleValue()));
+
+            // Assert the whole ProjectStats object using TraceAssertions
+            TraceAssertions.assertStats(stats.stats(), expectedStats);
+        }
+
+        @Test
+        @DisplayName("Success: Get experiment items stats with multiple experiments")
+        void getExperimentItemsStats__multipleExperiments() {
+            var workspaceName = UUID.randomUUID().toString();
+            var workspaceId = UUID.randomUUID().toString();
+            var apiKey = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var dataset = factory.manufacturePojo(Dataset.class);
+            var datasetId = datasetResourceClient.createDataset(dataset, apiKey, workspaceName);
+
+            var experiment1 = experimentResourceClient.createPartialExperiment()
+                    .datasetId(datasetId)
+                    .build();
+            createAndAssert(experiment1, apiKey, workspaceName);
+
+            var experiment2 = experimentResourceClient.createPartialExperiment()
+                    .datasetId(datasetId)
+                    .build();
+            createAndAssert(experiment2, apiKey, workspaceName);
+
+            var experiment3 = experimentResourceClient.createPartialExperiment()
+                    .datasetId(datasetId)
+                    .build();
+            createAndAssert(experiment3, apiKey, workspaceName);
+
+            var datasetItem1 = factory.manufacturePojo(DatasetItem.class);
+            var datasetItem2 = factory.manufacturePojo(DatasetItem.class);
+            var datasetItem3 = factory.manufacturePojo(DatasetItem.class);
+
+            datasetResourceClient.createDatasetItems(
+                    DatasetItemBatch.builder()
+                            .items(List.of(datasetItem1, datasetItem2, datasetItem3))
+                            .datasetId(datasetId)
+                            .build(),
+                    workspaceName,
+                    apiKey);
+
+            var trace1 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment1.name())
+                    .build();
+            traceResourceClient.createTrace(trace1, apiKey, workspaceName);
+
+            var trace2 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment2.name())
+                    .build();
+            traceResourceClient.createTrace(trace2, apiKey, workspaceName);
+
+            var trace3 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment3.name())
+                    .build();
+            traceResourceClient.createTrace(trace3, apiKey, workspaceName);
+
+            var experimentItem1 = ExperimentItem.builder()
+                    .experimentId(experiment1.id())
+                    .datasetItemId(datasetItem1.id())
+                    .traceId(trace1.id())
+                    .output(JsonUtils.readTree(Map.of("result", "output1")))
+                    .build();
+
+            var experimentItem2 = ExperimentItem.builder()
+                    .experimentId(experiment2.id())
+                    .datasetItemId(datasetItem2.id())
+                    .traceId(trace2.id())
+                    .output(JsonUtils.readTree(Map.of("result", "output2")))
+                    .build();
+
+            var experimentItem3 = ExperimentItem.builder()
+                    .experimentId(experiment3.id())
+                    .datasetItemId(datasetItem3.id())
+                    .traceId(trace3.id())
+                    .output(JsonUtils.readTree(Map.of("result", "output3")))
+                    .build();
+
+            var experimentItemsBatch = new ExperimentItemsBatch(
+                    Set.of(experimentItem1, experimentItem2, experimentItem3));
+
+            DatasetsResourceTest.this.createAndAssert(experimentItemsBatch, apiKey, workspaceName);
+
+            // Generate random feedback scores using PODAM
+            var feedbackScore1 = factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
+                    .id(trace1.id())
+                    .name("quality")
+                    .source(ScoreSource.SDK)
+                    .build();
+
+            var feedbackScore2 = factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
+                    .id(trace2.id())
+                    .name("quality")
+                    .source(ScoreSource.SDK)
+                    .build();
+
+            var feedbackScore3 = factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
+                    .id(trace3.id())
+                    .name("quality")
+                    .source(ScoreSource.SDK)
+                    .build();
+
+            var allExperimentItems = List.of(experimentItem1, experimentItem2, experimentItem3);
+            var feedbackScores = List.of(feedbackScore1, feedbackScore2, feedbackScore3);
+
+            traceResourceClient.feedbackScores(feedbackScores, apiKey, workspaceName);
+
+            // Fetch traces to get actual durations
+            var createdTrace1 = traceResourceClient.getById(trace1.id(), workspaceName, apiKey);
+            var createdTrace2 = traceResourceClient.getById(trace2.id(), workspaceName, apiKey);
+            var createdTrace3 = traceResourceClient.getById(trace3.id(), workspaceName, apiKey);
+
+            // Calculate expected values from test data
+            var experimentItemsCount = (long) allExperimentItems.size();
+            var traceCount = (long) feedbackScores.size();
+            var expectedAvgValue = feedbackScores.stream()
+                    .map(FeedbackScoreItem::value)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                    .divide(BigDecimal.valueOf(feedbackScores.size()), java.math.RoundingMode.HALF_UP);
+
+            // Calculate duration percentiles from all three traces
+            var traceDurations = List.of(createdTrace1.duration(), createdTrace2.duration(), createdTrace3.duration())
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .toList();
+            var durationPercentiles = StatsUtils.calculateQuantiles(traceDurations, List.of(0.50, 0.90, 0.99));
+
+            var stats = datasetResourceClient.getDatasetExperimentItemsStats(
+                    datasetId,
+                    List.of(experiment1.id(), experiment2.id(), experiment3.id()),
+                    apiKey,
+                    workspaceName,
+                    null);
+
+            // Build complete expected stats list from calculated values
+            List<ProjectStatItem<?>> expectedStats = List.of(
+                    new CountValueStat(StatsMapper.EXPERIMENT_ITEMS_COUNT, experimentItemsCount),
+                    new CountValueStat(StatsMapper.TRACE_COUNT, traceCount),
+                    new AvgValueStat(StatsMapper.TOTAL_ESTIMATED_COST, 0.0), // No costs in test data
+                    new PercentageValueStat(StatsMapper.DURATION,
+                            new PercentageValues(
+                                    durationPercentiles.get(0), // p50
+                                    durationPercentiles.get(1), // p90
+                                    durationPercentiles.get(2))), // p99
+                    new AvgValueStat("feedback_scores.quality", expectedAvgValue.doubleValue()));
+
+            // Assert the whole ProjectStats object using TraceAssertions
+            TraceAssertions.assertStats(stats.stats(), expectedStats);
+        }
+
+        @Test
+        @DisplayName("Success: Get experiment items stats with is_not_empty feedback scores filter")
+        void getExperimentItemsStats__withFeedbackScoresIsNotEmptyFilter() {
+            var workspaceName = UUID.randomUUID().toString();
+            var workspaceId = UUID.randomUUID().toString();
+            var apiKey = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var dataset = factory.manufacturePojo(Dataset.class);
+            var datasetId = datasetResourceClient.createDataset(dataset, apiKey, workspaceName);
+
+            var experiment = experimentResourceClient.createPartialExperiment()
+                    .datasetId(datasetId)
+                    .build();
+            createAndAssert(experiment, apiKey, workspaceName);
+
+            // Create dataset items
+            var datasetItem1 = factory.manufacturePojo(DatasetItem.class);
+            var datasetItem2 = factory.manufacturePojo(DatasetItem.class);
+            datasetResourceClient.createDatasetItems(
+                    DatasetItemBatch.builder()
+                            .items(List.of(datasetItem1, datasetItem2))
+                            .datasetId(datasetId)
+                            .build(),
+                    workspaceName,
+                    apiKey);
+
+            // Create trace WITH feedback score
+            var trace1 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment.name())
+                    .build();
+            traceResourceClient.createTrace(trace1, apiKey, workspaceName);
+
+            // Create trace WITHOUT feedback score
+            var trace2 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(experiment.name())
+                    .build();
+            traceResourceClient.createTrace(trace2, apiKey, workspaceName);
+
+            // Create experiment items
+            var experimentItem1 = ExperimentItem.builder()
+                    .experimentId(experiment.id())
+                    .datasetItemId(datasetItem1.id())
+                    .traceId(trace1.id())
+                    .build();
+            var experimentItem2 = ExperimentItem.builder()
+                    .experimentId(experiment.id())
+                    .datasetItemId(datasetItem2.id())
+                    .traceId(trace2.id())
+                    .build();
+
+            var experimentItemsBatch = new ExperimentItemsBatch(Set.of(experimentItem1, experimentItem2));
+            DatasetsResourceTest.this.createAndAssert(experimentItemsBatch, apiKey, workspaceName);
+
+            // Add feedback score to trace1 only
+            var feedbackScoreName = "UserFeedback"; // Use name without spaces to avoid URL encoding issues
+            var feedbackScore1 = factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
+                    .id(trace1.id())
+                    .projectName(experiment.name())
+                    .name(feedbackScoreName)
+                    .value(BigDecimal.valueOf(4.5))
+                    .build();
+            traceResourceClient.feedbackScores(List.of(feedbackScore1), apiKey, workspaceName);
+
+            // Create filter for is_not_empty on feedback score
+            var filters = List.of(
+                    ExperimentsComparisonFilter.builder()
+                            .field(ExperimentsComparisonValidKnownField.FEEDBACK_SCORES.getQueryParamField())
+                            .operator(Operator.IS_NOT_EMPTY)
+                            .key(feedbackScoreName)
+                            .value("")
+                            .build());
+
+            // Query with is_not_empty filter - should return only trace1 stats
+            var stats = datasetResourceClient.getDatasetExperimentItemsStats(
+                    datasetId,
+                    List.of(experiment.id()),
+                    apiKey,
+                    workspaceName,
+                    filters);
+
+            // Fetch the trace with feedback score to get actual duration
+            var createdTrace1 = traceResourceClient.getById(trace1.id(), workspaceName, apiKey);
+
+            // Calculate expected values - should only include trace1 which has feedback score
+            var experimentItemsCount = 1L; // Only experiment item 1 has feedback score
+            var traceCount = 1L; // Only trace1 has feedback score
+            var expectedAvgValue = feedbackScore1.value();
+
+            var durationPercentiles = StatsUtils.calculateQuantiles(
+                    List.of(createdTrace1.duration()),
+                    List.of(0.50, 0.90, 0.99));
+
+            // Build complete expected stats list
+            List<ProjectStatItem<?>> expectedStats = List.of(
+                    new CountValueStat(StatsMapper.EXPERIMENT_ITEMS_COUNT, experimentItemsCount),
+                    new CountValueStat(StatsMapper.TRACE_COUNT, traceCount),
+                    new AvgValueStat(StatsMapper.TOTAL_ESTIMATED_COST, 0.0), // No costs in test data
+                    new PercentageValueStat(StatsMapper.DURATION,
+                            new PercentageValues(
+                                    durationPercentiles.get(0), // p50
+                                    durationPercentiles.get(1), // p90
+                                    durationPercentiles.get(2))), // p99
+                    new AvgValueStat("feedback_scores.%s".formatted(feedbackScoreName),
+                            expectedAvgValue.doubleValue()));
+
+            // Assert the whole ProjectStats object using TraceAssertions
+            TraceAssertions.assertStats(stats.stats(), expectedStats);
+        }
+    }
+
+    @Nested
+    @DisplayName("OPIK-2469: Cross-Project Traces Duplicate Test")
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    class CrossProjectTracesDuplicateTest {
+
+        @Test
+        @DisplayName("Should return unique experiment items when trace has spans in multiple projects")
+        void findDatasetItemsWithExperimentItems__whenTraceHasSpansInMultipleProjects__thenReturnUniqueItems() {
+
+            var workspaceName = UUID.randomUUID().toString();
+            var apiKey = UUID.randomUUID().toString();
+            var workspaceId = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            // Create dataset
+            var dataset = factory.manufacturePojo(Dataset.class);
+            var datasetId = createAndAssert(dataset, apiKey, workspaceName);
+
+            // Create dataset item
+            var datasetItem = factory.manufacturePojo(DatasetItem.class);
+            var datasetItemBatch = DatasetItemBatch.builder()
+                    .datasetId(datasetId)
+                    .items(List.of(datasetItem))
+                    .build();
+            putAndAssert(datasetItemBatch, workspaceName, apiKey);
+
+            // Create Project A and Project B
+            var projectA = UUID.randomUUID().toString();
+            var projectB = UUID.randomUUID().toString();
+
+            // Create trace in Project A
+            var trace1 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(projectA)
+                    .build();
+            createAndAssert(trace1, workspaceName, apiKey);
+
+            // Create span in Project A for trace1
+            var span1InProjectA = factory.manufacturePojo(Span.class).toBuilder()
+                    .projectName(projectA)
+                    .traceId(trace1.id())
+                    .build();
+            createSpan(span1InProjectA, apiKey, workspaceName);
+
+            // ROOT CAUSE SIMULATION: Create span in Project B for the SAME trace (trace1)
+            // This creates a cross-project trace scenario through the API
+            var span1InProjectB = factory.manufacturePojo(Span.class).toBuilder()
+                    .projectName(projectB)
+                    .traceId(trace1.id())
+                    .build();
+            createSpan(span1InProjectB, apiKey, workspaceName);
+
+            // Create another trace in Project A (no cross-project issue)
+            var trace2 = factory.manufacturePojo(Trace.class).toBuilder()
+                    .projectName(projectA)
+                    .build();
+            createAndAssert(trace2, workspaceName, apiKey);
+
+            // Create experiment items for both traces
+            var experimentId = GENERATOR.generate();
+            var experimentItem1 = factory.manufacturePojo(ExperimentItem.class).toBuilder()
+                    .experimentId(experimentId)
+                    .datasetItemId(datasetItem.id())
+                    .traceId(trace1.id())
+                    .input(trace1.input())
+                    .output(trace1.output())
+                    .build();
+
+            var experimentItem2 = factory.manufacturePojo(ExperimentItem.class).toBuilder()
+                    .experimentId(experimentId)
+                    .datasetItemId(datasetItem.id())
+                    .traceId(trace2.id())
+                    .input(trace2.input())
+                    .output(trace2.output())
+                    .build();
+
+            var experimentItemsBatch = ExperimentItemsBatch.builder()
+                    .experimentItems(Set.of(experimentItem1, experimentItem2))
+                    .build();
+            createAndAssert(experimentItemsBatch, apiKey, workspaceName);
+
+            // Query the endpoint
+            var result = datasetResourceClient.getDatasetItemsWithExperimentItems(
+                    datasetId,
+                    List.of(experimentId),
+                    apiKey,
+                    workspaceName);
+
+            // Assert results
+            assertThat(result).isNotNull();
+            assertThat(result.content()).hasSize(1);
+
+            var datasetItemResult = result.content().get(0);
+            assertThat(datasetItemResult.id()).isEqualTo(datasetItem.id());
+
+            // CRITICAL ASSERTION: Should have exactly 2 unique experiment items (no duplicates)
+            // Without the fix, trace1 appears twice because it has spans in 2 projects
+            var experimentItems = datasetItemResult.experimentItems();
+            assertThat(experimentItems).isNotNull();
+
+            // Count experiment items by their ID to detect duplicates
+            var experimentItemIds = experimentItems.stream()
+                    .map(ExperimentItem::id)
+                    .collect(Collectors.toList());
+
+            var uniqueIds = new HashSet<>(experimentItemIds);
+
+            // THIS IS THE KEY ASSERTION - Verifies fix for OPIK-2469
+            assertThat(experimentItemIds)
+                    .as("Should not contain duplicate experiment item IDs - trace1 has spans in 2 projects but should appear once")
+                    .hasSameSizeAs(uniqueIds)
+                    .as("Should have exactly 2 unique experiment items")
+                    .hasSize(2);
+
+            // Verify the correct experiment items are present
+            assertThat(uniqueIds).containsExactlyInAnyOrder(experimentItem1.id(), experimentItem2.id());
+
+            // Verify each experiment item appears only once
+            experimentItemIds.forEach(id -> {
+                long count = experimentItemIds.stream().filter(i -> i.equals(id)).count();
+                assertThat(count)
+                        .as("Experiment item '%s' should appear exactly once, but appears '%d' times", id, count)
+                        .isEqualTo(1);
+            });
+        }
     }
 }
