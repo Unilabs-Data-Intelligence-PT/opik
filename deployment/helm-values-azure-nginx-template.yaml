@@ -39,9 +39,14 @@ oauth2-proxy:
     # =================================================================
     # Azure Entra ID Provider Configuration
     # =================================================================
-    provider: "azure"
-    azure-tenant: "$TENANT_ID"
+    provider: "oidc"
     oidc-issuer-url: "https://login.microsoftonline.com/$TENANT_ID/v2.0"
+
+    # =================================================================
+    # JWT Bearer Token Support
+    # =================================================================
+    skip-jwt-bearer-tokens: "true" # Enable JWT bearer token validation
+    extra-jwt-issuers: "https://login.microsoftonline.com/$TENANT_ID/v2.0=api://$APP_ID"
 
     # =================================================================
     # Basic Authentication Settings
@@ -72,7 +77,7 @@ oauth2-proxy:
 
     pass-access-token: "false" # Don't forward Azure AD access token (can be 50KB+)
     pass-user-headers: "false" # Don't forward X-Forwarded-User and related headers
-    pass-authorization-header: "false" # Don't forward Authorization header with bearer token
+    pass-authorization-header: "true" # Don't forward Authorization header with bearer token
     set-xauthrequest: "true" # Set X-Auth-Request-* headers (minimal user info)
 
     # =================================================================
@@ -91,7 +96,7 @@ oauth2-proxy:
     # =================================================================
     # OAuth2 Scopes & Claims
     # =================================================================
-    scope: "openid email profile groups" # Request minimal scopes needed for authentication
+    scope: "openid email profile" # Request minimal scopes needed for authentication
     user-id-claim: "preferred_username" # Use preferred_username as user identifier
 
     # =================================================================
