@@ -1,0 +1,36 @@
+name: Mirror to Unilabs-Apps-PT
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  delete:
+  schedule:
+    - cron: '47 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-to-unilabs-apps
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    # This file is mirrored too; only run in the source org
+    if: github.repository_owner == 'Unilabs-Data-Intelligence-PT'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Mirror all branches and tags to unilabs.ghe.com
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DST_TOKEN: ${{ secrets.UNILABS_APPS_MIRROR_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone --mirror \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo.git
+          cd repo.git
+          # Only heads and tags: refs/pull/* are read-only on GitHub
+          git push --prune \
+            "https://x-access-token:${DST_TOKEN}@unilabs.ghe.com/Unilabs-Apps-PT/${GITHUB_REPOSITORY#*/}.git" \
+            '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
